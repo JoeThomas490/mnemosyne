@@ -1,8 +1,10 @@
-// The player: two <video> elements double-buffered for hard cuts, a NO
-// SIGNAL screen, and the plumbing between them and the Live Playback
-// Controller. All decisions are the controller's; this only reports what
-// happens and does as it's told.
+// The player: two <video> elements double-buffered for hard cuts, shown
+// through the CRT, a NO SIGNAL screen, and the plumbing between them and
+// the Live Playback Controller. All decisions are the controller's; this
+// only reports what happens and does as it's told.
 import { MANIFEST_KEY, type Clip, type Manifest } from "../shared/index.ts";
+import { startCrt } from "./crt.ts";
+import { dateStampLines } from "./date-stamp.ts";
 import { LivePlaybackController, type Command, type PlayerEvent } from "./live-playback.ts";
 
 // How often the controller is ticked, in milliseconds.
@@ -16,11 +18,23 @@ export function startPlayer(screen: HTMLElement): void {
   const noSignal = document.createElement("div");
   noSignal.className = "no-signal";
   noSignal.textContent = "NO SIGNAL";
+  // The videos sit (small) under the CRT's canvas rather than being
+  // hidden, which some browsers (notably iOS Safari) would take as licence
+  // to stop decoding them.
+  const crt = document.createElement("canvas");
+  crt.className = "crt";
   let active = createVideo();
   let standby = createVideo();
-  screen.replaceChildren(active, standby, noSignal);
+  screen.replaceChildren(active, standby, crt, noSignal);
   // The Clip each element holds.
   const clips = new Map<HTMLVideoElement, Clip>();
+  // Whether the airing Clip is showing, rather than NO SIGNAL.
+  let onAir = false;
+  startCrt(crt, () => {
+    if (!onAir) return null;
+    const recordingTime = clips.get(active)?.recordingTime ?? null;
+    return { video: active, dateStamp: dateStampLines(recordingTime, active.currentTime) };
+  });
   // Set when the airing Clip is loading or stalled; its next `playing`
   // reports where playback resumed.
   let stalled = false;
@@ -44,7 +58,7 @@ export function startPlayer(screen: HTMLElement): void {
           break;
         case "noSignal":
           active.pause();
-          show(noSignal);
+          setOnAir(false);
           break;
       }
     }
@@ -61,7 +75,7 @@ export function startPlayer(screen: HTMLElement): void {
     active.play().catch(() => {
       // A load failure is reported through the element's error event.
     });
-    show(active);
+    setOnAir(true);
   }
 
   function load(video: HTMLVideoElement, clip: Clip, offset: number): void {
@@ -73,8 +87,9 @@ export function startPlayer(screen: HTMLElement): void {
     video.currentTime = offset;
   }
 
-  function show(element: HTMLElement): void {
-    for (const child of [active, standby, noSignal]) child.hidden = child !== element;
+  function setOnAir(on: boolean): void {
+    onAir = on;
+    noSignal.hidden = on;
   }
 
   function createVideo(): HTMLVideoElement {
@@ -84,7 +99,6 @@ export function startPlayer(screen: HTMLElement): void {
     video.muted = true;
     video.playsInline = true;
     video.preload = "auto";
-    video.hidden = true;
     video.addEventListener("ended", () => {
       if (video === active) send({ type: "clipEnded" });
     });

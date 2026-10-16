@@ -2,9 +2,11 @@ html,
 body {
   margin: 0;
   height: 100%;
+  /* Until the script sets LOOK.background (src/look.ts). */
   background: #000;
   color: #ccc;
   font-family: system-ui, sans-serif;
+  overflow: hidden;
 }
 
 #app {
@@ -13,15 +15,24 @@ body {
   height: 100%;
 }
 
-/* The two videos and NO SIGNAL share one cell; only one is shown. */
+/* The videos, the CRT and NO SIGNAL share one cell, stacked in that order. */
 #app > * {
   grid-area: 1 / 1;
 }
 
+/* The largest box of the CRT's aspect ratio (set by the CRT from
+   LOOK.screen) that fits the viewport. */
+#app .crt {
+  width: min(100vw, calc(100vh * var(--aspect-ratio, 16 / 9)));
+  width: min(100vw, calc(100dvh * var(--aspect-ratio, 16 / 9)));
+  aspect-ratio: var(--aspect-ratio, 16 / 9);
+}
+
+/* The videos only feed the CRT: tiny, so the canvas always covers them
+   whatever rounding a browser does, but on screen, so they keep decoding. */
 #app video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  width: 16px;
+  height: 9px;
 }
 
 #app [hidden] {
