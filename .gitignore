@@ -1,0 +1,6 @@
+# Sample camcorder Originals (test fixtures, too large for git)
+assets/*.MPG
+assets/convert_mpg
+
+# macOS
+.DS_Store
