@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onRequest } from "./[[path]].ts";
 import { FakeBucket, context } from "../test-support.ts";
 
@@ -120,5 +120,21 @@ describe("media route: the manifest", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('{"formatVersion":2}');
     expect(response.headers.get("ETag")).not.toBe(etag);
+  });
+
+  describe("tells viewers the server's time, to correct their clocks by", () => {
+    beforeEach(() => vi.useFakeTimers({ now: Date.parse("2026-10-16T18:30:05.250Z"), toFake: ["Date"] }));
+    afterEach(() => vi.useRealTimers());
+
+    it("on a full response", async () => {
+      const response = await media("manifest.json");
+      expect(response.headers.get("Date")).toBe("Fri, 16 Oct 2026 18:30:05 GMT");
+    });
+
+    it("on a 304", async () => {
+      const etag = (await media("manifest.json")).headers.get("ETag")!;
+      const response = await media("manifest.json", { "If-None-Match": etag });
+      expect(response.headers.get("Date")).toBe("Fri, 16 Oct 2026 18:30:05 GMT");
+    });
   });
 });

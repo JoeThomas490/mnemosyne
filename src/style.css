@@ -13,8 +13,22 @@ body {
   height: 100%;
 }
 
+/* The two videos and NO SIGNAL share one cell; only one is shown. */
+#app > * {
+  grid-area: 1 / 1;
+}
+
 #app video {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+#app [hidden] {
+  display: none;
+}
+
+.no-signal {
+  font-size: 3rem;
+  letter-spacing: 0.2em;
 }

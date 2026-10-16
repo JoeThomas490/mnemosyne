@@ -72,7 +72,12 @@ function cacheHeaders(object: R2Object): Headers {
   const headers = new Headers({ ETag: object.httpEtag });
   // The manifest changes whenever the Library does, so clients must
   // revalidate it (cheaply, via its ETag) rather than reuse a stale copy.
-  if (object.key === MANIFEST_KEY) headers.set("Cache-Control", "no-cache");
+  if (object.key === MANIFEST_KEY) {
+    headers.set("Cache-Control", "no-cache");
+    // Viewers correct their clocks by this (ADR 0001). Cloudflare's edge
+    // adds it anyway, but local dev doesn't, so set it here.
+    headers.set("Date", new Date().toUTCString());
+  }
   return headers;
 }
 
