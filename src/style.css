@@ -40,6 +40,7 @@ body {
 }
 
 .no-signal {
+  font-family: "Jersey 25", system-ui, sans-serif;
   font-size: 3rem;
   letter-spacing: 0.2em;
 }
