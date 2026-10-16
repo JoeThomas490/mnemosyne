@@ -19,6 +19,6 @@
     "typecheck": "npm run cf-typegen && tsc -p tsconfig.json && tsc -p functions/tsconfig.json",
     "deploy": "npm run build && wrangler pages deploy",
     "shared:smoke": "tsx scripts/shared-smoke.ts",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types --strict-vars=false"
   }
 }

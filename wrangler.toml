@@ -20,3 +20,10 @@ remote = true
 binding = "WEB"
 bucket_name = "web"
 remote = true
+
+# Who may watch (ADR 0002): "open" (anyone) or "password" (HTTP basic
+# auth against the BASIC_AUTH_USER / BASIC_AUTH_PASSWORD secrets, set with
+# `wrangler pages secret put` and, for local dev, in `.dev.vars`).
+# Switching policy is a change to this value only.
+[vars]
+ACCESS_POLICY = "password"
