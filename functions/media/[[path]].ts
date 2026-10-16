@@ -1,5 +1,5 @@
-// Serves web encodes and the manifest from the private `web` bucket on the
-// site's own origin (ADR 0002): /media/<key> → object <key>. Honours single
+// Serves web encodes and the manifest from the private `mnemosyne-web` bucket
+// on the site's own origin (ADR 0002): /media/<key> → object <key>. Honours single
 // byte-range requests so a viewer can Tune in mid-Clip without downloading
 // the whole object, and conditional requests so the frontend can cheaply
 // re-check the manifest at every Clip boundary.

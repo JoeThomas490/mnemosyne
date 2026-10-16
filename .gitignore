@@ -10,4 +10,5 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.env
 worker-configuration.d.ts

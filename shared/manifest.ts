@@ -1,7 +1,8 @@
 // The manifest describes the Library. The Library CLI publishes it to the
-// `web` bucket; the frontend fetches it through the media route.
+// `mnemosyne-web` bucket; the frontend fetches it through the media route.
 
-// Object key of the manifest in the `web` bucket (served at /media/<key>).
+// Object key of the manifest in the `mnemosyne-web` bucket (served at
+// /media/<key>).
 export const MANIFEST_KEY = "manifest.json";
 
 // Bumped whenever the manifest's shape changes incompatibly.
@@ -18,7 +19,8 @@ export interface Manifest {
 export interface Clip {
   // Content hash of the Clip's Original; the Clip's identity.
   id: string;
-  // Object key of the web encode in the `web` bucket, e.g. "v1/<id>.mp4".
+  // Object key of the web encode in the `mnemosyne-web` bucket, e.g.
+  // "v1/<id>.mp4".
   webEncodeKey: string;
   // Duration of the web encode (what actually airs), in seconds.
   duration: number;

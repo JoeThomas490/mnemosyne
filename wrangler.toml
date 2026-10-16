@@ -12,13 +12,13 @@ compatibility_date = "2026-10-01"
 # Archived Originals, keyed by content hash.
 [[r2_buckets]]
 binding = "ORIGINALS"
-bucket_name = "originals"
+bucket_name = "mnemosyne-originals"
 remote = true
 
 # Web encodes and the manifest.
 [[r2_buckets]]
 binding = "WEB"
-bucket_name = "web"
+bucket_name = "mnemosyne-web"
 remote = true
 
 # Who may watch (ADR 0002): "open" (anyone) or "password" (HTTP basic
