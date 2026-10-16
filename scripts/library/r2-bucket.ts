@@ -1,6 +1,7 @@
 // An R2 bucket reached through R2's S3-compatible API, using an R2 API token
 // from the environment (see .env.example).
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   NotFound,
@@ -81,5 +82,9 @@ export class S3ApiBucket implements Bucket {
     await this.client.send(
       new PutObjectCommand({ Bucket: this.name, Key: key, Body: text, ContentType: contentType }),
     );
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.name, Key: key }));
   }
 }

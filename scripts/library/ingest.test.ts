@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
-import { MANIFEST_KEY, type Manifest } from "../../shared/index.ts";
+import { MANIFEST_KEY } from "../../shared/index.ts";
 import { ingest } from "./ingest.ts";
 import {
   FakeEncoder,
@@ -9,6 +9,7 @@ import {
   RecordingLog,
   folderOf,
   originalRecordedAt,
+  readManifest,
 } from "./test-support.ts";
 
 // SHA-256 of the strings "a", "b" and "bb": the content hashes of the fake
@@ -55,7 +56,7 @@ describe("ingest: a new folder", () => {
   it("publishes a manifest describing each Clip", async () => {
     await run(await folderOf({ "M2U00001.MPG": "a", "Malta/Day 1/M2U00002.MPG": "bb" }));
 
-    const manifest = readManifest();
+    const manifest = readManifest(web);
     expect(manifest.formatVersion).toBe(1);
     expect(manifest.scheduleEpoch).toBe("2026-01-01T00:00:00Z");
     expect(manifest.clips).toEqual([
@@ -90,7 +91,7 @@ describe("ingest: a new folder", () => {
       }),
     );
 
-    expect(readManifest().clips.map((clip) => clip.originalFilename)).toEqual([
+    expect(readManifest(web).clips.map((clip) => clip.originalFilename)).toEqual([
       "M2U00001.MPG",
       "m2u00002.mpg",
     ]);
@@ -118,14 +119,14 @@ describe("ingest: re-running", () => {
   it("adds only the new Originals and keeps the Library's existing Clips first", async () => {
     const root = await folderOf({ "M2U00001.MPG": "a" });
     await run(root);
-    const epoch = readManifest().scheduleEpoch;
+    const epoch = readManifest(web).scheduleEpoch;
 
     const encoder = new FakeEncoder();
     await run(await folderOf({ "M2U00001.MPG": "a", "M2U00002.MPG": "b" }), { encoder });
 
     expect(encoder.encodes).toBe(1);
-    expect(readManifest().clips.map((clip) => clip.id)).toEqual([HASH_A, HASH_B]);
-    expect(readManifest().scheduleEpoch).toBe(epoch);
+    expect(readManifest(web).clips.map((clip) => clip.id)).toEqual([HASH_A, HASH_B]);
+    expect(readManifest(web).scheduleEpoch).toBe(epoch);
   });
 
   it("keeps Clips whose Originals are absent locally", async () => {
@@ -133,7 +134,7 @@ describe("ingest: re-running", () => {
 
     await run(await folderOf({ "M2U00002.MPG": "b" }));
 
-    const clips = readManifest().clips;
+    const clips = readManifest(web).clips;
     expect(clips.map((clip) => [clip.id, clip.folder])).toEqual([
       [HASH_A, "Malta"],
       [HASH_B, ""],
@@ -151,7 +152,7 @@ describe("ingest: re-running", () => {
 
     await run(await folderOf({ "M2U00001.MPG": "a" }));
 
-    expect(readManifest().scheduleEpoch).toBe("2025-06-01T00:00:00Z");
+    expect(readManifest(web).scheduleEpoch).toBe("2025-06-01T00:00:00Z");
   });
 });
 
@@ -164,8 +165,8 @@ describe("ingest: duplicate content", () => {
     );
 
     expect(encoder.encodes).toBe(1);
-    expect(readManifest().clips).toHaveLength(1);
-    expect(readManifest().clips[0]).toMatchObject({ folder: "Malta", originalFilename: "M2U00001.MPG" });
+    expect(readManifest(web).clips).toHaveLength(1);
+    expect(readManifest(web).clips[0]).toMatchObject({ folder: "Malta", originalFilename: "M2U00001.MPG" });
     const skipped = duplicateWarnings();
     expect(skipped).toHaveLength(1);
     expect(skipped[0]).toContain("Zoo/M2U00007.MPG");
@@ -178,7 +179,7 @@ describe("ingest: duplicate content", () => {
     log = new RecordingLog();
     await run(await folderOf({ "Copies/M2U00001.MPG": "a" }));
 
-    expect(readManifest().clips[0]).toMatchObject({ folder: "Malta" });
+    expect(readManifest(web).clips[0]).toMatchObject({ folder: "Malta" });
     expect(log.warnings).toHaveLength(1);
     expect(log.warnings[0]).toContain("Copies/M2U00001.MPG");
     expect(log.warnings[0]).toContain("Malta/M2U00001.MPG");
@@ -195,7 +196,7 @@ describe("ingest: after the encode version is bumped", () => {
 
     expect(web.text(`v2/${HASH_A}.mp4`)).toBe("v2:a");
     expect(web.text(`v2/${HASH_BB}.mp4`)).toBe("v2:bb");
-    expect(readManifest().clips).toEqual([
+    expect(readManifest(web).clips).toEqual([
       expect.objectContaining({ id: HASH_BB, webEncodeKey: `v2/${HASH_BB}.mp4`, folder: "" }),
       expect.objectContaining({ id: HASH_A, webEncodeKey: `v2/${HASH_A}.mp4`, folder: "Malta" }),
     ]);
@@ -206,7 +207,7 @@ describe("ingest: after the encode version is bumped", () => {
 
     await run(await folderOf({}), { encoder: new FakeEncoder("v2", () => 99), encodeVersion: 2 });
 
-    expect(readManifest().clips[0]?.duration).toBe(99);
+    expect(readManifest(web).clips[0]?.duration).toBe(99);
   });
 
   it("encodes new Originals straight to the new version", async () => {
@@ -214,7 +215,7 @@ describe("ingest: after the encode version is bumped", () => {
 
     await run(await folderOf({ "M2U00002.MPG": "b" }), { encodeVersion: 2 });
 
-    expect(readManifest().clips.map((clip) => clip.webEncodeKey)).toEqual([
+    expect(readManifest(web).clips.map((clip) => clip.webEncodeKey)).toEqual([
       `v2/${HASH_A}.mp4`,
       `v2/${HASH_B}.mp4`,
     ]);
@@ -233,7 +234,7 @@ describe("ingest: after the encode version is bumped", () => {
     });
 
     expect(result.failed).toEqual(["M2U00002.MPG"]);
-    expect(readManifest().clips.map((clip) => clip.webEncodeKey)).toEqual([
+    expect(readManifest(web).clips.map((clip) => clip.webEncodeKey)).toEqual([
       `v2/${HASH_A}.mp4`,
       expect.stringMatching(/^v1\//),
     ]);
@@ -275,7 +276,7 @@ describe("ingest: an Original that fails to encode", () => {
       encoder: new FakeEncoder("web", failOn),
     });
 
-    expect(readManifest().clips.map((clip) => clip.id)).toEqual([HASH_B]);
+    expect(readManifest(web).clips.map((clip) => clip.id)).toEqual([HASH_B]);
     expect(result.failed).toEqual(["M2U00001.MPG"]);
     expect(log.warnings.join("\n")).toContain("M2U00001.MPG");
     expect(log.warnings.join("\n")).toContain("ffmpeg exited with code 1");
@@ -287,7 +288,7 @@ describe("ingest: Recording time", () => {
     await run(sampleOriginals());
 
     const recordingTimes = Object.fromEntries(
-      readManifest().clips.map((clip) => [clip.originalFilename, clip.recordingTime]),
+      readManifest(web).clips.map((clip) => [clip.originalFilename, clip.recordingTime]),
     );
     expect(recordingTimes).toEqual({
       "M2U00027.MPG": "2026-04-04T14:17:16",
@@ -300,7 +301,7 @@ describe("ingest: Recording time", () => {
   it("is null, with a warning, for an Original with no ARI_DATA packet; the Clip is still added", async () => {
     const result = await run(await folderOf({ "Malta/M2U00001.MPG": "a", "M2U00002.MPG": "b" }));
 
-    expect(readManifest().clips.map((clip) => clip.recordingTime)).toEqual([null, null]);
+    expect(readManifest(web).clips.map((clip) => clip.recordingTime)).toEqual([null, null]);
     expect(result).toMatchObject({ added: 2, failed: [] });
     expect(log.warnings).toHaveLength(2);
     expect(log.warnings.join("\n")).toContain("Malta/M2U00001.MPG");
@@ -317,7 +318,7 @@ describe("ingest: Recording time", () => {
   ])("is null, with a warning, for an ARI_DATA time with %s", async (_, time) => {
     const result = await run(await folderOf({ "M2U00001.MPG": originalRecordedAt(time) }));
 
-    expect(readManifest().clips.map((clip) => clip.recordingTime)).toEqual([null]);
+    expect(readManifest(web).clips.map((clip) => clip.recordingTime)).toEqual([null]);
     expect(result).toMatchObject({ added: 1, failed: [] });
     expect(log.warnings).toHaveLength(1);
     expect(log.warnings[0]).toContain("M2U00001.MPG");
@@ -331,7 +332,7 @@ describe("ingest: Recording time", () => {
       }),
     );
 
-    expect(readManifest().clips[0]?.recordingTime).toBe("2028-02-29T23:59:58");
+    expect(readManifest(web).clips[0]?.recordingTime).toBe("2028-02-29T23:59:58");
   });
 });
 
@@ -355,10 +356,4 @@ function sampleOriginals(): string {
 // no-Recording-time warnings).
 function duplicateWarnings(): string[] {
   return log.warnings.filter((warning) => warning.startsWith("skipping"));
-}
-
-function readManifest(): Manifest {
-  const text = web.text(MANIFEST_KEY);
-  if (text === undefined) throw new Error("no manifest was published");
-  return JSON.parse(text);
 }

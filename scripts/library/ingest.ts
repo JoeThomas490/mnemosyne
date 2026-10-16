@@ -5,13 +5,9 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  MANIFEST_FORMAT_VERSION,
-  MANIFEST_KEY,
-  type Clip,
-  type Manifest,
-} from "../../shared/index.ts";
+import type { Clip } from "../../shared/index.ts";
 import type { Bucket, Encoder, Log } from "./adapters.ts";
+import { clipPath, loadManifest, publishManifest, relativePath } from "./published-manifest.ts";
 import { readRecordingTime } from "./recording-time.ts";
 
 export interface IngestOptions {
@@ -21,9 +17,6 @@ export interface IngestOptions {
   log: Log;
   encodeVersion: number;
 }
-
-// The Schedule epoch given to a brand-new Library (ADR 0001).
-const SCHEDULE_EPOCH = "2026-01-01T00:00:00Z";
 
 export interface IngestResult {
   added: number;
@@ -66,16 +59,15 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
     // archived Originals, which needn't be available locally.
     for (const clip of manifest.clips) {
       if (clip.webEncodeKey === webEncodeKeyFor(encodeVersion, clip.id)) continue;
-      const clipPath = relativePath(clip.folder, clip.originalFilename);
       try {
-        log.info(`re-encoding ${clipPath}`);
+        log.info(`re-encoding ${clipPath(clip)}`);
         const archived = join(scratch, clip.id);
         await originals.download(clip.id, archived);
         Object.assign(clip, await encodeAndUpload(clip.id, archived));
         await rm(archived, { force: true });
         result.reencoded++;
       } catch (error) {
-        fail(clipPath, error);
+        fail(clipPath(clip), error);
       }
     }
 
@@ -86,10 +78,9 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
         const id = await contentHash(file);
         const existing = library.get(id);
         if (existing) {
-          const clipPath = relativePath(existing.folder, existing.originalFilename);
-          if (originalPath !== clipPath) {
+          if (originalPath !== clipPath(existing)) {
             log.warn(
-              `skipping ${originalPath}: same content as ${clipPath}, which is already in the Library`,
+              `skipping ${originalPath}: same content as ${clipPath(existing)}, which is already in the Library`,
             );
           }
           continue;
@@ -121,7 +112,7 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
   }
 
   if (result.added + result.reencoded > 0) {
-    await web.writeText(MANIFEST_KEY, JSON.stringify(manifest, null, 2), "application/json");
+    await publishManifest(web, manifest);
   }
   return result;
 }
@@ -136,22 +127,6 @@ function encodeVersionOf(webEncodeKey: string): number {
   const match = webEncodeKey.match(/^v(\d+)\//);
   if (!match) throw new Error(`unrecognised web encode key: ${webEncodeKey}`);
   return Number(match[1]);
-}
-
-// The published manifest, or an empty Library if none has been published.
-async function loadManifest(web: Bucket): Promise<Manifest> {
-  const text = await web.readText(MANIFEST_KEY);
-  if (text === null) {
-    return { formatVersion: MANIFEST_FORMAT_VERSION, scheduleEpoch: SCHEDULE_EPOCH, clips: [] };
-  }
-  const manifest: Manifest = JSON.parse(text);
-  if (manifest.formatVersion !== MANIFEST_FORMAT_VERSION) {
-    throw new Error(
-      `the published manifest has format version ${manifest.formatVersion}; ` +
-        `this CLI understands ${MANIFEST_FORMAT_VERSION}`,
-    );
-  }
-  return manifest;
 }
 
 interface FoundOriginal {
@@ -176,11 +151,6 @@ async function findOriginals(root: string, folder = ""): Promise<FoundOriginal[]
     }
   }
   return found;
-}
-
-// An Original's path relative to the ingest root.
-function relativePath(folder: string, filename: string): string {
-  return folder ? `${folder}/${filename}` : filename;
 }
 
 async function contentHash(path: string): Promise<string> {

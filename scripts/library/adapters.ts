@@ -1,5 +1,6 @@
-// The Library CLI's view of the outside world. Ingest only talks to storage
-// and the encoder through these, so it can run against in-memory fakes.
+// The Library CLI's view of the outside world. Its commands only talk to
+// storage and the encoder through these, so they can run against in-memory
+// fakes.
 
 // One R2 bucket (`mnemosyne-originals` or `mnemosyne-web`).
 export interface Bucket {
@@ -11,6 +12,8 @@ export interface Bucket {
   // The object as text, or null if it doesn't exist.
   readText(key: string): Promise<string | null>;
   writeText(key: string, text: string, contentType: string): Promise<void>;
+  // Deletes the object; does nothing if it doesn't exist.
+  delete(key: string): Promise<void>;
 }
 
 // Produces a web encode of an Original.

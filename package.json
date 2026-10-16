@@ -23,6 +23,8 @@
     "deploy": "npm run build && wrangler pages deploy",
     "shared:smoke": "tsx scripts/shared-smoke.ts",
     "ingest": "tsx --env-file-if-exists=.env scripts/library/cli.ts ingest",
+    "library:list": "tsx --env-file-if-exists=.env scripts/library/cli.ts list",
+    "library:remove": "tsx --env-file-if-exists=.env scripts/library/cli.ts remove",
     "cf-typegen": "wrangler types --strict-vars=false"
   }
 }

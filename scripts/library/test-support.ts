@@ -1,8 +1,11 @@
 // Fakes for exercising the Library CLI at its seam.
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { MANIFEST_KEY, type Clip, type Manifest } from "../../shared/index.ts";
 import type { Bucket, Encoder, Log } from "./adapters.ts";
+import { loadManifest, publishManifest } from "./published-manifest.ts";
 
 // An in-memory bucket that records every write.
 export class InMemoryBucket implements Bucket {
@@ -30,6 +33,11 @@ export class InMemoryBucket implements Bucket {
 
   async writeText(key: string, text: string, contentType: string): Promise<void> {
     this.objects.set(key, { bytes: Buffer.from(text, "utf8"), contentType });
+    this.writes++;
+  }
+
+  async delete(key: string): Promise<void> {
+    this.objects.delete(key);
     this.writes++;
   }
 
@@ -107,4 +115,47 @@ export function originalRecordedAt(time: {
   const header = Buffer.from([0x00, 0x00, 0x01, 0xbd, 0x00, 0x00, 0x81, 0x00, 0x00]);
   header.writeUInt16BE(3 + payload.length, 4);
   return Buffer.concat([header, payload]);
+}
+
+// A Clip already in the Library, whose Original was found at
+// `folder/filename`. Its id is derived from that path, so it's stable and
+// distinct per path.
+export function clipIn(
+  folder: string,
+  filename: string,
+  fields: Partial<Omit<Clip, "folder" | "originalFilename">> = {},
+): Clip {
+  const id = createHash("sha256").update(`${folder}/${filename}`).digest("hex");
+  return {
+    id,
+    webEncodeKey: `v1/${id}.mp4`,
+    duration: 60,
+    recordingTime: null,
+    folder,
+    originalFilename: filename,
+    ...fields,
+  };
+}
+
+// Puts `clips` into a Library as ingest would have left it: a published
+// manifest, each Clip's web encode in `web` and, given `originals`, each
+// Clip's archived Original there.
+export async function publishLibrary(
+  web: InMemoryBucket,
+  clips: Clip[],
+  originals?: InMemoryBucket,
+): Promise<void> {
+  await publishManifest(web, { ...(await loadManifest(web)), clips });
+  web.writes = 0;
+  for (const clip of clips) {
+    web.objects.set(clip.webEncodeKey, { bytes: Buffer.from("encode"), contentType: "video/mp4" });
+    originals?.objects.set(clip.id, { bytes: Buffer.from("original"), contentType: "video/mpeg" });
+  }
+}
+
+// The manifest last published to `web`.
+export function readManifest(web: InMemoryBucket): Manifest {
+  const text = web.text(MANIFEST_KEY);
+  if (text === undefined) throw new Error("no manifest was published");
+  return JSON.parse(text);
 }
