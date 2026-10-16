@@ -1,0 +1,24 @@
+{
+  "name": "mnemosyne",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.1"
+  },
+  "scripts": {
+    "dev": "vite build && concurrently -k -n build,pages,test -c blue,green,magenta \"vite build --watch\" \"wrangler pages dev --live-reload\" \"vitest watch\"",
+    "build": "npm run typecheck && vitest run && vite build",
+    "test": "vitest run",
+    "typecheck": "npm run cf-typegen && tsc -p tsconfig.json && tsc -p functions/tsconfig.json",
+    "deploy": "npm run build && wrangler pages deploy",
+    "shared:smoke": "tsx scripts/shared-smoke.ts",
+    "cf-typegen": "wrangler types"
+  }
+}

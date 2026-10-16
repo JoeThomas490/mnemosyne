@@ -4,3 +4,10 @@ assets/convert_mpg
 
 # macOS
 .DS_Store
+
+# Build and tooling
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+worker-configuration.d.ts

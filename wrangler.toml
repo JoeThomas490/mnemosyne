@@ -1,0 +1,22 @@
+name = "mnemosyne"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-10-01"
+
+# Both buckets are private (ADR 0002). `remote = true` makes local dev use
+# the real buckets rather than a local simulation, so any write made from
+# dev lands in the real Library.
+#
+# Functions get their `Env` type from these bindings via `npm run cf-typegen`
+# (run automatically by `npm run typecheck`).
+
+# Archived Originals, keyed by content hash.
+[[r2_buckets]]
+binding = "ORIGINALS"
+bucket_name = "originals"
+remote = true
+
+# Web encodes and the manifest.
+[[r2_buckets]]
+binding = "WEB"
+bucket_name = "web"
+remote = true
