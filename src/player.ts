@@ -1,7 +1,8 @@
 // The player: two <video> elements double-buffered for hard cuts, shown
 // through the CRT, a NO SIGNAL screen, and the plumbing between them and
-// the Live Playback Controller. All decisions are the controller's; this
-// only reports what happens and does as it's told.
+// the Live Playback Controller. All scheduling decisions are the
+// controller's; this only reports what happens and does as it's told.
+// Sound is the viewer's to turn on, through the returned PlayerSound.
 import { MANIFEST_KEY, type Clip, type Manifest } from "../shared/index.ts";
 import { startCrt } from "./crt.ts";
 import { dateStampLines } from "./date-stamp.ts";
@@ -13,7 +14,19 @@ const TICK_INTERVAL_MS = 100;
 // worth a seek (which costs a moment of loading), in seconds.
 const SEEK_TOLERANCE_SECONDS = 0.25;
 
-export function startPlayer(screen: HTMLElement): void {
+// The player's sound: one muted state shared by both elements, so it holds
+// across Clip changes.
+export interface PlayerSound {
+  readonly muted: boolean;
+  // Call from a user gesture when unmuting, as browsers only allow unmuted
+  // playback that a viewer started.
+  setMuted(muted: boolean): void;
+  // Called whenever `muted` changes, including when a browser refuses
+  // unmuted playback and the player falls back to muted.
+  onChange(listener: (muted: boolean) => void): void;
+}
+
+export function startPlayer(screen: HTMLElement): PlayerSound {
   const controller = new LivePlaybackController();
   const noSignal = document.createElement("div");
   noSignal.className = "no-signal";
@@ -35,6 +48,9 @@ export function startPlayer(screen: HTMLElement): void {
     const recordingTime = clips.get(active)?.recordingTime ?? null;
     return { video: active, dateStamp: dateStampLines(recordingTime, active.currentTime) };
   });
+  // Browsers only autoplay muted video, so the viewer starts muted.
+  let muted = true;
+  const mutedListeners: ((muted: boolean) => void)[] = [];
   // Set when the airing Clip is loading or stalled; its next `playing`
   // reports where playback resumed.
   let stalled = false;
@@ -72,10 +88,33 @@ export function startPlayer(screen: HTMLElement): void {
     [active, standby] = [standby, active];
     standby.pause();
     stalled = true;
-    active.play().catch(() => {
+    const airing = active;
+    airing.play().catch((error: unknown) => {
+      // A browser that won't play this element unmuted (iOS Safari, for
+      // one it was never unlocked for) can still play it muted.
+      if (error instanceof DOMException && error.name === "NotAllowedError" && !muted) {
+        setMuted(true);
+        if (airing === active) void airing.play().catch(() => {});
+      }
       // A load failure is reported through the element's error event.
     });
     setOnAir(true);
+  }
+
+  function setMuted(next: boolean): void {
+    if (next === muted) return;
+    muted = next;
+    for (const video of [active, standby]) {
+      video.muted = muted;
+      // Some browsers (iOS Safari) only let an element play unmuted once
+      // it's been played from a gesture: unlock the standby element now,
+      // as it'll next play from a tick.
+      if (!muted && video === standby) {
+        void video.play().catch(() => {});
+        video.pause();
+      }
+    }
+    for (const listener of mutedListeners) listener(muted);
   }
 
   function load(video: HTMLVideoElement, clip: Clip, offset: number): void {
@@ -94,7 +133,7 @@ export function startPlayer(screen: HTMLElement): void {
 
   function createVideo(): HTMLVideoElement {
     const video = document.createElement("video");
-    // Browsers only autoplay muted video; playsInline keeps iOS from going
+    // Muted to start with (see `muted`); playsInline keeps iOS from going
     // fullscreen.
     video.muted = true;
     video.playsInline = true;
@@ -119,6 +158,14 @@ export function startPlayer(screen: HTMLElement): void {
 
   run(controller.tuneIn());
   setInterval(() => send({ type: "tick" }), TICK_INTERVAL_MS);
+
+  return {
+    get muted() {
+      return muted;
+    },
+    setMuted,
+    onChange: (listener) => mutedListeners.push(listener),
+  };
 }
 
 // Fetches the manifest, revalidating any cached copy by its ETag.
