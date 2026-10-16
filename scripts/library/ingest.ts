@@ -12,6 +12,7 @@ import {
   type Manifest,
 } from "../../shared/index.ts";
 import type { Bucket, Encoder, Log } from "./adapters.ts";
+import { readRecordingTime } from "./recording-time.ts";
 
 export interface IngestOptions {
   originals: Bucket;
@@ -95,12 +96,16 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
         }
 
         log.info(`adding ${originalPath}`);
+        const recordingTimeResult = await readRecordingTime(file);
+        if (recordingTimeResult.recordingTime === null) {
+          log.warn(`no Recording time for ${originalPath}: ${recordingTimeResult.problem}`);
+        }
         // An interrupted run may already have archived it.
         if (!(await originals.has(id))) await originals.upload(id, file, "video/mpeg");
         const clip: Clip = {
           id,
           ...(await encodeAndUpload(id, file)),
-          recordingTime: null,
+          recordingTime: recordingTimeResult.recordingTime,
           folder: original.folder,
           originalFilename: original.filename,
         };

@@ -68,11 +68,43 @@ export class RecordingLog implements Log {
 }
 
 // Creates a folder of fake Originals: { "relative/path.MPG": "content" }.
-export async function folderOf(files: Record<string, string>): Promise<string> {
+export async function folderOf(files: Record<string, string | Buffer>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "mnemosyne-ingest-"));
   for (const [path, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, path)), { recursive: true });
     await writeFile(join(root, path), content);
   }
   return root;
+}
+
+// A fake Original holding one Sony ARI_DATA packet (ADR 0004) that records
+// the given camera-clock time, whether or not it's a real date.
+export function originalRecordedAt(time: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}): Buffer {
+  // Most significant field first: year, month (4 bits), day (5), hour (5),
+  // minute (6), second (6).
+  let field = time.year;
+  for (const [value, bits] of [
+    [time.month, 4],
+    [time.day, 5],
+    [time.hour, 5],
+    [time.minute, 6],
+    [time.second, 6],
+  ] as const) {
+    field = field * 2 ** bits + value;
+  }
+
+  const payload = Buffer.alloc(0xa8);
+  payload[0] = 0xff; // sub-stream ID
+  payload.write("ARI_DATA", 1, "ascii");
+  payload.writeUIntBE(field, 0xa3, 5);
+  const header = Buffer.from([0x00, 0x00, 0x01, 0xbd, 0x00, 0x00, 0x81, 0x00, 0x00]);
+  header.writeUInt16BE(3 + payload.length, 4);
+  return Buffer.concat([header, payload]);
 }

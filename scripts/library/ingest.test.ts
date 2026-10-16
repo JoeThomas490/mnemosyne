@@ -1,7 +1,15 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MANIFEST_KEY, type Manifest } from "../../shared/index.ts";
 import { ingest } from "./ingest.ts";
-import { FakeEncoder, InMemoryBucket, RecordingLog, folderOf } from "./test-support.ts";
+import {
+  FakeEncoder,
+  InMemoryBucket,
+  RecordingLog,
+  folderOf,
+  originalRecordedAt,
+} from "./test-support.ts";
 
 // SHA-256 of the strings "a", "b" and "bb": the content hashes of the fake
 // Originals below.
@@ -96,6 +104,7 @@ describe("ingest: re-running", () => {
     await run(root);
     const manifestBefore = web.text(MANIFEST_KEY);
     const writesBefore = originals.writes + web.writes;
+    log = new RecordingLog();
 
     const encoder = new FakeEncoder();
     await run(root, { encoder });
@@ -157,14 +166,16 @@ describe("ingest: duplicate content", () => {
     expect(encoder.encodes).toBe(1);
     expect(readManifest().clips).toHaveLength(1);
     expect(readManifest().clips[0]).toMatchObject({ folder: "Malta", originalFilename: "M2U00001.MPG" });
-    expect(log.warnings).toHaveLength(1);
-    expect(log.warnings[0]).toContain("Zoo/M2U00007.MPG");
-    expect(log.warnings[0]).toContain("Malta/M2U00001.MPG");
+    const skipped = duplicateWarnings();
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toContain("Zoo/M2U00007.MPG");
+    expect(skipped[0]).toContain("Malta/M2U00001.MPG");
   });
 
   it("warns when content already in the Library turns up somewhere else", async () => {
     await run(await folderOf({ "Malta/M2U00001.MPG": "a" }));
 
+    log = new RecordingLog();
     await run(await folderOf({ "Copies/M2U00001.MPG": "a" }));
 
     expect(readManifest().clips[0]).toMatchObject({ folder: "Malta" });
@@ -270,6 +281,81 @@ describe("ingest: an Original that fails to encode", () => {
     expect(log.warnings.join("\n")).toContain("ffmpeg exited with code 1");
   });
 });
+
+describe("ingest: Recording time", () => {
+  it("decodes each sample Original's Recording time into the manifest", async () => {
+    await run(sampleOriginals());
+
+    const recordingTimes = Object.fromEntries(
+      readManifest().clips.map((clip) => [clip.originalFilename, clip.recordingTime]),
+    );
+    expect(recordingTimes).toEqual({
+      "M2U00027.MPG": "2026-04-04T14:17:16",
+      "M2U00036.MPG": "2026-04-05T13:19:29",
+      "M2U00265.MPG": "2026-10-03T07:14:45",
+    });
+    expect(log.warnings).toEqual([]);
+  });
+
+  it("is null, with a warning, for an Original with no ARI_DATA packet; the Clip is still added", async () => {
+    const result = await run(await folderOf({ "Malta/M2U00001.MPG": "a", "M2U00002.MPG": "b" }));
+
+    expect(readManifest().clips.map((clip) => clip.recordingTime)).toEqual([null, null]);
+    expect(result).toMatchObject({ added: 2, failed: [] });
+    expect(log.warnings).toHaveLength(2);
+    expect(log.warnings.join("\n")).toContain("Malta/M2U00001.MPG");
+    expect(log.warnings.join("\n")).toContain("M2U00002.MPG");
+    expect(log.warnings.every((warning) => warning.includes("Recording time"))).toBe(true);
+  });
+
+  it.each([
+    ["a year before 2000", { year: 1999, month: 12, day: 31, hour: 23, minute: 59, second: 59 }],
+    ["a year after 2100", { year: 2101, month: 1, day: 1, hour: 0, minute: 0, second: 0 }],
+    ["a month that doesn't exist", { year: 2026, month: 13, day: 1, hour: 0, minute: 0, second: 0 }],
+    ["a day the month doesn't have", { year: 2026, month: 2, day: 29, hour: 0, minute: 0, second: 0 }],
+    ["an hour that doesn't exist", { year: 2026, month: 4, day: 4, hour: 24, minute: 0, second: 0 }],
+  ])("is null, with a warning, for an ARI_DATA time with %s", async (_, time) => {
+    const result = await run(await folderOf({ "M2U00001.MPG": originalRecordedAt(time) }));
+
+    expect(readManifest().clips.map((clip) => clip.recordingTime)).toEqual([null]);
+    expect(result).toMatchObject({ added: 1, failed: [] });
+    expect(log.warnings).toHaveLength(1);
+    expect(log.warnings[0]).toContain("M2U00001.MPG");
+    expect(log.warnings[0]).toContain("implausible");
+  });
+
+  it("decodes a plausible ARI_DATA time, including a leap day", async () => {
+    await run(
+      await folderOf({
+        "M2U00001.MPG": originalRecordedAt({ year: 2028, month: 2, day: 29, hour: 23, minute: 59, second: 58 }),
+      }),
+    );
+
+    expect(readManifest().clips[0]?.recordingTime).toBe("2028-02-29T23:59:58");
+  });
+});
+
+// The real camcorder Originals in assets/ (too large to commit, so they
+// must be copied in by hand before running the tests).
+const SAMPLE_ORIGINALS = ["M2U00027.MPG", "M2U00036.MPG", "M2U00265.MPG"];
+
+function sampleOriginals(): string {
+  const assets = fileURLToPath(new URL("../../assets/", import.meta.url));
+  const missing = SAMPLE_ORIGINALS.filter((name) => !existsSync(assets + name));
+  if (missing.length > 0) {
+    throw new Error(
+      `missing sample Originals in assets/: ${missing.join(", ")}. ` +
+        "They aren't committed; copy them in from the camcorder footage.",
+    );
+  }
+  return assets;
+}
+
+// Warnings about skipped duplicate content (the fake Originals also draw
+// no-Recording-time warnings).
+function duplicateWarnings(): string[] {
+  return log.warnings.filter((warning) => warning.startsWith("skipping"));
+}
 
 function readManifest(): Manifest {
   const text = web.text(MANIFEST_KEY);
