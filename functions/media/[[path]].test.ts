@@ -24,6 +24,13 @@ describe("media route: full requests", () => {
     expect(response.headers.get("Accept-Ranges")).toBe("bytes");
   });
 
+  it("lets the browser keep a web encode, whose bytes never change", async () => {
+    for (const headers of [undefined, { Range: "bytes=2-5" }]) {
+      const response = await media("v1/abc.mp4", headers);
+      expect(response.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
+    }
+  });
+
   it("returns 404 for a missing object", async () => {
     const response = await media("v1/missing.mp4");
     expect(response.status).toBe(404);

@@ -77,6 +77,11 @@ function cacheHeaders(object: R2Object): Headers {
     // Viewers correct their clocks by this (ADR 0001). Cloudflare's edge
     // adds it anyway, but local dev doesn't, so set it here.
     headers.set("Date", new Date().toUTCString());
+  } else {
+    // Web encodes are keyed by content hash and encode version, so a key's
+    // bytes never change: let the browser keep them, rather than refetching
+    // a Clip each time it airs. Private, as they may sit behind a password.
+    headers.set("Cache-Control", "private, max-age=31536000, immutable");
   }
   return headers;
 }
