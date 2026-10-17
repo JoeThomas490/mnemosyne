@@ -127,13 +127,13 @@ export class LivePlaybackController {
   // Airs whatever the Schedule says is on, with a freshly fetched manifest.
   private applyManifest(now: number): Command[] {
     const live = now + this.clockOffset;
-    const airing = airingAt(this.manifest!, live);
+    const airing = this.airingAt(live);
     if (!airing) return this.offAir(now);
     return this.airLive(live);
   }
 
   private airLive(live: number): Command[] {
-    const airing = airingAt(this.manifest!, live)!;
+    const airing = this.airingAt(live)!;
     this.airing = airing;
     for (const start of this.failedSlots) if (start < airing.start) this.failedSlots.delete(start);
 
@@ -162,8 +162,14 @@ export class LivePlaybackController {
     return [{ type: "fetchManifest" }];
   }
 
+  // The Airing on at `live` on the Schedule, from the current manifest.
+  private airingAt(live: number): Airing | null {
+    const manifest = this.manifest!;
+    return airingAt(manifest.clips, Date.parse(manifest.scheduleEpoch), live);
+  }
+
   private nextAiring(airing: Airing): Airing {
-    return airingAt(this.manifest!, airing.end)!;
+    return this.airingAt(airing.end)!;
   }
 }
 

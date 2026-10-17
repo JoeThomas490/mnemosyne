@@ -1,7 +1,8 @@
-// The Schedule (ADR 0001): what airs at any instant, derived from the
-// manifest and the clock alone so every viewer computes the same thing.
+// The Schedule (ADR 0001): what airs at any instant on a Channel, derived
+// from its Clips, the shared epoch and the clock alone so every viewer
+// computes the same thing.
 // Changing anything here changes what airs for everyone.
-import type { Clip, Manifest } from "./manifest.ts";
+import type { Clip } from "./manifest.ts";
 
 // One Clip's slot in the Schedule.
 export interface Airing {
@@ -11,13 +12,13 @@ export interface Airing {
   end: number;
 }
 
-// The Airing on at `now` (ms since the Unix epoch), or null when nothing
-// can air (an empty Library).
-export function airingAt(manifest: Manifest, now: number): Airing | null {
-  const clips = manifest.clips;
+// The Airing on at `now` on the Schedule of `clips` (a Channel's Clips, in
+// manifest order) counting from `epoch`, or null when nothing can air (no
+// Clips). Times are ms since the Unix epoch; `epoch` is the manifest's
+// `scheduleEpoch`, shared by every Channel.
+export function airingAt(clips: readonly Clip[], epoch: number, now: number): Airing | null {
   const cycleLength = clips.reduce((total, clip) => total + durationMs(clip), 0);
   if (cycleLength <= 0) return null;
-  const epoch = Date.parse(manifest.scheduleEpoch);
   const cycle = Math.floor((now - epoch) / cycleLength);
   let start = epoch + cycle * cycleLength;
   for (const clip of cycleOrder(clips, cycle)) {
@@ -37,7 +38,7 @@ function durationMs(clip: Clip): number {
 
 // The order Cycle `cycle` airs the Clips in: a shuffle seeded by the Cycle
 // number, adjusted so no Clip airs twice in a row across Cycles.
-function cycleOrder(clips: Clip[], cycle: number): Clip[] {
+function cycleOrder(clips: readonly Clip[], cycle: number): readonly Clip[] {
   // With two Clips, only repeating the same order every Cycle avoids a
   // back-to-back repeat (and with one, there's no avoiding it).
   if (clips.length <= 2) return clips;

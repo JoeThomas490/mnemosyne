@@ -199,6 +199,13 @@ describe("the Schedule", () => {
     for (const order of watchCycles(ragged, 300)) expect([...order].sort()).toEqual(["a", "b", "c", "d", "e"]);
   });
 
+  it("is exactly the Schedule that has always aired", () => {
+    // Recorded before Channels existed: every viewer of the All Channel
+    // must keep seeing precisely this.
+    expect(watchCycles(library, 3).map((cycle) => cycle.join(""))).toEqual(["ehdfgbac", "bcghedaf", "eahdgbcf"]);
+    expect(aired(tuneIn(library, EPOCH + 987_654_321).commands)).toEqual({ clip: "c", offset: 24.071 });
+  });
+
   it("is the same for every viewer, however long they have been watching", () => {
     const now = EPOCH + 1234.5 * SECOND;
     const longWatcher = tuneIn(library, EPOCH).controller;
