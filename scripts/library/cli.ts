@@ -1,11 +1,9 @@
 // The Library CLI. Always works on the real (production) Library.
 //
-//   npm run ingest <folder>
+//   npm run ingest [folder]
 //   npm run library:list [filter]
 //   npm run library:remove -- <target> [--purge]
 //   npm run library:remove -- --all [--purge]
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { Clip } from "../../shared/index.ts";
 import type { Log } from "./adapters.ts";
@@ -21,7 +19,7 @@ const ORIGINALS_BUCKET = "mnemosyne-originals";
 const WEB_BUCKET = "mnemosyne-web";
 
 const USAGE = [
-  "usage: npm run ingest <folder>",
+  "usage: npm run ingest [folder]   (folder under LIBRARY_ROOT; default: all of it)",
   "       npm run library:list [filter]",
   "       npm run library:remove -- <target> [--purge]",
   "       npm run library:remove -- --all [--purge]",
@@ -62,7 +60,7 @@ function buckets() {
 async function main([command, ...args]: string[]): Promise<number> {
   switch (command) {
     case "ingest":
-      if (args.length === 1) return runIngest(args[0]!);
+      if (args.length <= 1) return runIngest(args[0]);
       break;
     case "list":
       if (args.length <= 1) return runList(args[0]);
@@ -79,15 +77,12 @@ async function main([command, ...args]: string[]): Promise<number> {
   return 2;
 }
 
-async function runIngest(folder: string): Promise<number> {
-  const root = resolve(folder);
-  if (!(await stat(root).catch(() => null))?.isDirectory()) {
-    console.error(`not a folder: ${root}`);
-    return 2;
-  }
-
+// Only ingest needs the Library root (ADR 0006), and refuses to run without
+// it; the other commands work without it.
+async function runIngest(folder?: string): Promise<number> {
   const started = Date.now();
-  const result = await ingest(root, {
+  const result = await ingest(process.env.LIBRARY_ROOT, {
+    path: folder,
     ...buckets(),
     encoder: new FfmpegEncoder(),
     log,
