@@ -78,3 +78,96 @@ body {
   pointer-events: none;
   transition-duration: 1s;
 }
+
+/* While the Channel Guide is open the picture is hidden, but stays in the
+   layout and keeps rendering, so the Channel keeps airing behind it. */
+#app.blanked > .crt,
+#app.blanked > .no-signal {
+  visibility: hidden;
+}
+
+/* The Channel Guide's prompt and list share the Date stamp's typeface and
+   colour (set from LOOK by channel-guide.ts), outlined like it. */
+.guide-prompt,
+.channel-guide {
+  font-family: var(--stamp-font), system-ui, sans-serif;
+  color: var(--stamp-colour);
+  text-shadow:
+    -1px -1px 0 var(--stamp-stroke),
+    1px -1px 0 var(--stamp-stroke),
+    -1px 1px 0 var(--stamp-stroke),
+    1px 1px 0 var(--stamp-stroke);
+}
+
+/* Over the bottom-left of the viewport, clear of any notch or home bar,
+   fading like the sound toggle. */
+.guide-prompt {
+  position: fixed;
+  z-index: 2;
+  left: max(1rem, env(safe-area-inset-left));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  font-size: 1.75rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.guide-prompt.idle {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 1s;
+}
+
+/* A flat overlay over the whole viewport; a click on its empty space
+   closes it. */
+.channel-guide {
+  position: fixed;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  font-size: 2rem;
+}
+
+.channel-guide[hidden] {
+  display: none;
+}
+
+.channel-guide ul {
+  margin: 0;
+  padding: 1rem;
+  list-style: none;
+}
+
+.channel-guide button {
+  display: block;
+  width: 100%;
+  padding: 0.1em 0.5em;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.05em;
+  text-align: left;
+  white-space: pre;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The ▶ marking the current Channel, in a fixed column. */
+.channel-guide .marker {
+  display: inline-block;
+  width: 1.5em;
+}
+
+.channel-guide .highlighted button {
+  background: var(--stamp-colour);
+  color: #000;
+  text-shadow: none;
+}
