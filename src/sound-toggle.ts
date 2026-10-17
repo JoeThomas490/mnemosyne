@@ -1,6 +1,7 @@
 // A control over the picture: a toggle to turn the sound on after muted
-// autoplay, and off again. It fades out when the viewer leaves the mouse
-// or screen alone, and comes back on any activity (see idle-fade.ts).
+// autoplay, and off again. It fades out when the viewer leaves the mouse,
+// screen and keyboard alone, and comes back on any activity (see
+// idle-fade.ts).
 import { fadeWhenIdle } from "./idle-fade.ts";
 import type { PlayerSound } from "./player.ts";
 

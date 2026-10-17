@@ -139,13 +139,13 @@ export class LivePlaybackController {
   // Airs whatever the Schedule says is on, with a freshly fetched manifest.
   private applyManifest(now: number): Command[] {
     const live = now + this.clockOffset;
-    const airing = this.airingAt(live);
+    const airing = this.channelAiringAt(live);
     if (!airing) return this.offAir(now);
     return this.airLive(live);
   }
 
   private airLive(live: number): Command[] {
-    const airing = this.airingAt(live)!;
+    const airing = this.channelAiringAt(live)!;
     this.airing = airing;
     for (const start of this.failedSlots) if (start < airing.start) this.failedSlots.delete(start);
 
@@ -176,14 +176,14 @@ export class LivePlaybackController {
 
   // The Airing on at `live` on the Channel's Schedule, from the current
   // manifest.
-  private airingAt(live: number): Airing | null {
+  private channelAiringAt(live: number): Airing | null {
     const manifest = this.manifest!;
     const channel = this.channel!;
     return airingAt(channelClips(channel, manifest.clips), channel.order, Date.parse(manifest.scheduleEpoch), live);
   }
 
   private nextAiring(airing: Airing): Airing {
-    return this.airingAt(airing.end)!;
+    return this.channelAiringAt(airing.end)!;
   }
 }
 

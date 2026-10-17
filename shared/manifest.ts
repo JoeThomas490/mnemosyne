@@ -27,7 +27,7 @@ export interface Clip {
   // Camera-local date-time with no timezone (ADR 0004), e.g.
   // "2026-04-04T14:17:16", or null when it couldn't be recovered.
   recordingTime: string | null;
-  // Folder the Original was found in, relative to the ingest root
+  // Folder the Original was found in, relative to the Library root (ADR 0006)
   // ("" for the root itself), using "/" separators.
   folder: string;
   // The Original's filename as it came off the camcorder, e.g. "M2U00027.MPG".
