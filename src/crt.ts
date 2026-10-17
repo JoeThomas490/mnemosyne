@@ -57,6 +57,7 @@ void main() {
 export function startCrt(canvas: HTMLCanvasElement, picture: () => Picture | null): void {
   // The page sizes the canvas to fit the viewport at this ratio.
   document.documentElement.style.setProperty("--aspect-ratio", String(LOOK.screen.aspectRatio));
+  document.documentElement.style.setProperty("--screen-size-percent",String(LOOK.screen.screenSizePercent));
   const stamp = new StampLayer();
   let renderer = createRenderer(canvas);
   if (!renderer) console.error("WebGL is unavailable: the CRT can't draw");

@@ -23,8 +23,8 @@ body {
 /* The largest box of the CRT's aspect ratio (set by the CRT from
    LOOK.screen) that fits the viewport. */
 #app .crt {
-  width: min(100vw, calc(100vh * var(--aspect-ratio, 16 / 9)));
-  width: min(100vw, calc(100dvh * var(--aspect-ratio, 16 / 9)));
+  width: min(calc(100vw * var(--screen-size-percent)), calc(100vh * var(--aspect-ratio, 16 / 9)));
+  width: min(calc(100vw * var(--screen-size-percent)), calc(100dvh * var(--aspect-ratio, 16 / 9)));
   aspect-ratio: var(--aspect-ratio, 16 / 9);
 }
 

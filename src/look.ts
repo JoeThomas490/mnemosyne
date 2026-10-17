@@ -7,6 +7,7 @@ export const LOOK = {
   // The curved CRT screen, filling the viewport at this width:height.
   screen: {
     aspectRatio: 16 / 9,
+    screenSizePercent: 0.7,
     // Barrel distortion: 0 is flat; larger bulges the picture more and
     // rounds off the corners. Around 0.02–0.15 looks like a TV.
     distortion: 0.06,
