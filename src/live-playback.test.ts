@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Clip, Manifest } from "../shared/index.ts";
-import { parseChannels, type Channel } from "./channels.ts";
+import { airingAt, type Clip, type Manifest } from "../shared/index.ts";
+import { channelClips, parseChannels, type Channel } from "./channels.ts";
 import { LivePlaybackController, type Command } from "./live-playback.ts";
 
 const EPOCH = Date.parse("2026-01-01T00:00:00Z");
@@ -140,21 +140,21 @@ describe("Clip boundaries", () => {
   });
 });
 
-// The Clip ids one viewer sees air through the first `count` Cycles,
-// Cycle by Cycle, tuning in at the epoch and letting each Clip play to its
-// end.
+// The Clip ids one viewer of `onChannel` sees air through its first
+// `count` Cycles, Cycle by Cycle, tuning in at the epoch and letting each
+// Clip play to the end of its slot.
 function watchCycles(manifest: Manifest, count: number, onChannel = ALL): string[][] {
+  const clips = channelClips(onChannel, manifest.clips);
   let now = EPOCH;
   let { controller, commands } = tuneIn(manifest, now, onChannel);
   const seen: string[] = [];
-  while (seen.length < count * manifest.clips.length) {
-    const air = aired(commands)!;
-    seen.push(air.clip);
-    now += manifest.clips.find((c) => c.id === air.clip)!.duration * SECOND;
+  while (seen.length < count * clips.length) {
+    seen.push(aired(commands)!.clip);
+    now = airingAt(clips, onChannel.order, EPOCH, now)!.end;
     commands = controller.handle({ type: "clipEnded" }, now);
   }
   return Array.from({ length: count }, (_, cycle) =>
-    seen.slice(cycle * manifest.clips.length, (cycle + 1) * manifest.clips.length),
+    seen.slice(cycle * clips.length, (cycle + 1) * clips.length),
   );
 }
 
@@ -238,26 +238,18 @@ describe("Channels", () => {
     clip("paris", 10, "Paris"),
   );
 
-  // Every Clip id one viewer of `onChannel` sees air through its first
-  // `slots` slots, tuning in at the epoch.
-  function watch(onChannel: Channel, slots: number): string[] {
-    let now = EPOCH;
-    let { controller, commands } = tuneIn(library, now, onChannel);
-    const seen: string[] = [];
-    while (seen.length < slots) {
-      seen.push(aired(commands)!.clip);
-      now += 10 * SECOND;
-      commands = controller.handle({ type: "clipEnded" }, now);
-    }
-    return seen;
-  }
-
   it("air only the Clips in their included folders and the folders beneath them", () => {
-    expect(new Set(watch(channel(["Malta"]), 20))).toEqual(new Set(["malta", "day2"]));
+    expect(new Set(watchCycles(library, 10, channel(["Malta"])).flat())).toEqual(new Set(["malta", "day2"]));
+  });
+
+  it("air each of their Clips exactly once per Cycle of their own", () => {
+    for (const cycle of watchCycles(library, 10, channel(["Malta"]))) {
+      expect([...cycle].sort()).toEqual(["day2", "malta"]);
+    }
   });
 
   it("air the whole Library when they include no folders", () => {
-    expect(new Set(watch(ALL, 20))).toEqual(new Set(["root", "malta", "day2", "maltese", "paris"]));
+    expect(new Set(watchCycles(library, 4).flat())).toEqual(new Set(["root", "malta", "day2", "maltese", "paris"]));
   });
 
   it("air their own Schedule, counting from the shared epoch", () => {
