@@ -178,7 +178,8 @@ export class LivePlaybackController {
   // manifest.
   private airingAt(live: number): Airing | null {
     const manifest = this.manifest!;
-    return airingAt(channelClips(this.channel!, manifest.clips), Date.parse(manifest.scheduleEpoch), live);
+    const channel = this.channel!;
+    return airingAt(channelClips(channel, manifest.clips), channel.order, Date.parse(manifest.scheduleEpoch), live);
   }
 
   private nextAiring(airing: Airing): Airing {
