@@ -16,6 +16,12 @@ describe("parsing the Channel config", () => {
     ]);
   });
 
+  it("accepts a chronological Channel order", () => {
+    const [holiday] = parseChannels([{ id: "malta", name: "Malta", order: "chronological" }]);
+
+    expect(holiday.order).toBe("chronological");
+  });
+
   it.each([
     ["no Channels", []],
     ["not a list", { id: "all", name: "All" }],
