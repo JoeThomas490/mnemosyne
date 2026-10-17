@@ -1,7 +1,4 @@
-# Full-size camcorder Originals (too large for git; the tests use the
-# committed slices in scripts/library/fixtures/, ADR 0005)
 assets/*.MPG
-assets/convert_mpg
 
 # macOS
 .DS_Store
