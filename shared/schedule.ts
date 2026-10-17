@@ -25,8 +25,8 @@ export function airingAt(clips: readonly Clip[], order: ChannelOrder, epoch: num
   if (cycleLength <= 0) return null;
   const cycle = Math.floor((now - epoch) / cycleLength);
   let start = epoch + cycle * cycleLength;
-  const sequence = order === "chronological" ? chronological(clips) : cycleOrder(clips, cycle);
-  for (const clip of sequence) {
+  const cycleClips = order === "chronological" ? chronological(clips) : cycleOrder(clips, cycle);
+  for (const clip of cycleClips) {
     const end = start + durationMs(clip);
     if (now < end) return { clip, start, end };
     start = end;

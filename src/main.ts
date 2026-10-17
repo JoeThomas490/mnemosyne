@@ -21,7 +21,7 @@ if (named !== null && named !== channel.id) showInUrl(channel);
 const app = document.querySelector<HTMLElement>("#app")!;
 const player = startPlayer(app, channel);
 startSoundToggle(app, player.sound);
-startChannelGuide(app, channels, channel, player, showInUrl);
+startChannelGuide(app, channels, player, showInUrl);
 
 // Puts `channel`'s id in the URL, so it can be shared, without adding a
 // history entry: Back leaves the site rather than surfing back through

@@ -30,6 +30,8 @@ export interface PlayerSound {
 // A running player.
 export interface Player {
   sound: PlayerSound;
+  // The Channel last Tuned in to: the one airing.
+  readonly channel: Channel;
   // Switches to `channel`, live. Call from a user gesture, so the viewer's
   // sound setting carries over.
   tuneIn(channel: Channel): void;
@@ -194,7 +196,13 @@ export function startPlayer(screen: HTMLElement, channel: Channel): Player {
       setMuted,
       onChange: (listener) => mutedListeners.push(listener),
     },
-    tuneIn: (next) => run(controller.tuneIn(next, Date.now())),
+    get channel() {
+      return channel;
+    },
+    tuneIn: (next) => {
+      channel = next;
+      run(controller.tuneIn(next, Date.now()));
+    },
     setBlanked,
   };
 }

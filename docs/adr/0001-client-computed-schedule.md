@@ -6,3 +6,4 @@ Every viewer must see the same Clip at the same moment, like broadcast TV. Rathe
 
 - Any change to the Library (adding or removing Clips) reshuffles the Schedule, so viewers jump to a different Clip. Clients refetch the manifest at each Clip boundary so all viewers converge within one Clip.
 - The Schedule algorithm lives in shared code and must stay identical between the frontend and anything else that computes it; changing it changes what airs.
+- With Channels (ADR 0006), the Schedule is computed per Channel, from that Channel's Clips and its Channel order, all counting from the one shared epoch. A chronological Channel airs every Cycle in Recording-time order and doesn't shuffle.
