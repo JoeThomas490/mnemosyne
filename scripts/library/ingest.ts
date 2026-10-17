@@ -1,8 +1,8 @@
 // `ingest [folder]` (ADR 0003, ADR 0006): turns a folder of Originals under
 // the Library root into Library Clips.
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { createReadStream, realpathSync, statSync } from "node:fs";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Clip } from "../../shared/index.ts";
@@ -37,10 +37,7 @@ export interface IngestResult {
 export async function ingest(root: string | undefined, options: IngestOptions): Promise<IngestResult> {
   const { originals, web, encoder, log, encodeVersion } = options;
   if (!root) throw new Error("LIBRARY_ROOT is not set: set it in .env to the folder holding the Library's Originals");
-  const start = folderUnderRoot(root, options.path);
-  if (!(await stat(join(root, start)).catch(() => null))?.isDirectory()) {
-    throw new Error(`not a folder: ${resolve(root, start)}`);
-  }
+  const folder = folderUnderRoot(root, options.path);
   const manifest = await loadManifest(web);
   // An older checkout of this CLI must not "re-encode" the Library back down.
   const newest = Math.max(0, ...manifest.clips.map((clip) => encodeVersionOf(clip.webEncodeKey)));
@@ -92,7 +89,7 @@ export async function ingest(root: string | undefined, options: IngestOptions): 
       }
     }
 
-    const found = await findOriginals(root, start);
+    const found = await findOriginals(root, folder);
     for (const [i, original] of found.entries()) {
       const originalPath = relativePath(original.folder, original.filename);
       const counter = `[${i + 1}/${found.length}]`;
@@ -164,14 +161,32 @@ function encodeVersionOf(webEncodeKey: string): number {
 }
 
 // The folder `path` names, relative to the Library root with "/"
-// separators ("" for the root itself).
-// Refuses a path outside the root, where folders would be meaningless.
+// separators ("" for the root itself), spelled as the folders are named on
+// disk. Both are resolved through symlinks first, so a symlink inside the
+// root that leads out of it is refused, and a path to the root spelled
+// another way is accepted. Refuses anything but a folder under the root,
+// where folders would be meaningless.
 function folderUnderRoot(root: string, path = ""): string {
-  const folder = relative(resolve(root), resolve(root, path));
+  const canonicalRoot = canonical(resolve(root));
+  const target = canonical(resolve(root, path));
+  if (!canonicalRoot || !target || !statSync(target).isDirectory()) {
+    throw new Error(`not a folder: ${resolve(root, path)}`);
+  }
+  const folder = relative(canonicalRoot, target);
   if (folder === ".." || folder.startsWith(`..${sep}`) || isAbsolute(folder)) {
     throw new Error(`${resolve(root, path)} is outside the Library root (LIBRARY_ROOT, ${resolve(root)})`);
   }
   return folder.split(sep).join("/");
+}
+
+// `path` with every symlink resolved and each name in its on-disk case
+// (realpath(3) on macOS), or null when it doesn't exist.
+function canonical(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return null;
+  }
 }
 
 interface FoundOriginal {

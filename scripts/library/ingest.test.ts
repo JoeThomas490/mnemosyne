@@ -1,3 +1,4 @@
+import { mkdir, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -469,10 +470,42 @@ describe("ingest: the Library root", () => {
     await expect(runIn("")).rejects.toThrow(/LIBRARY_ROOT/);
   });
 
+  it("refuses a symlink inside the root that points outside it", async () => {
+    const elsewhere = await folderOf({ "M2U00001.MPG": "a" });
+    await symlink(elsewhere, join(root, "Escape"));
+
+    await expect(runIn(root, "Escape")).rejects.toThrow(/outside/);
+    expect(web.writes).toBe(0);
+  });
+
+  it("accepts a path into the root spelled through a symlink to it", async () => {
+    const link = join(await folderOf({}), "library-link");
+    await symlink(root, link);
+
+    await runIn(root, join(link, "Malta", "Day 2"));
+
+    expect(folders()).toEqual([["Malta/Day 2", "M2U00002.MPG"]]);
+  });
+
+  it("records the folder's name as it is on disk, whatever case the path uses", async (context) => {
+    // Only meaningful on a case-insensitive file system (macOS's default).
+    if (!(await stat(join(root, "MALTA")).catch(() => null))) context.skip();
+
+    await runIn(root, "malta/day 2");
+
+    expect(folders()).toEqual([["Malta/Day 2", "M2U00002.MPG"]]);
+  });
+
   it.each([
     ["an absolute path elsewhere", async () => folderOf({ "M2U00001.MPG": "a" })],
     ["a relative path climbing out", async () => ".."],
-    ["a sibling sharing the root's name as a prefix", async () => `${root}-copy`],
+    [
+      "a sibling sharing the root's name as a prefix",
+      async () => {
+        await mkdir(`${root}-copy`);
+        return `${root}-copy`;
+      },
+    ],
   ])("refuses %s, archiving, encoding and publishing nothing", async (_, outside) => {
     const encoder = new FakeEncoder();
     await publishLibrary(web, [clipIn("", "M2U00009.MPG")], originals);
