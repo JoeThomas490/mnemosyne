@@ -11,7 +11,6 @@ import type { Player } from "./player.ts";
 export function startChannelGuide(
   parent: HTMLElement,
   channels: readonly Channel[],
-  initial: Channel,
   player: Player,
   // Called after each switch, with the Channel now airing.
   onTunedIn: (channel: Channel) => void,
@@ -48,7 +47,6 @@ export function startChannelGuide(
   guide.append(list);
   parent.append(guide, prompt);
 
-  let current = initial;
   let highlighted = 0;
   let isOpen = false;
 
@@ -64,15 +62,14 @@ export function startChannelGuide(
     prompt.setAttribute("aria-expanded", String(open));
     player.setBlanked(open);
     if (!open) return;
-    const at = channels.indexOf(current);
+    const at = channels.indexOf(player.channel);
     lines.forEach(({ marker }, i) => (marker.textContent = i === at ? "▶" : ""));
     highlight(at);
   }
 
   function tuneIn(channel: Channel): void {
     setOpen(false);
-    if (channel === current) return;
-    current = channel;
+    if (channel === player.channel) return;
     player.tuneIn(channel);
     onTunedIn(channel);
   }
@@ -86,19 +83,36 @@ export function startChannelGuide(
     if (!(event.target as Element).closest("button")) setOpen(false);
   });
 
+  // Keys that act only while the Guide is open.
+  const whileOpen: Record<string, () => void> = {
+    Escape: () => setOpen(false),
+    ArrowUp: () => highlight(highlighted - 1),
+    ArrowDown: () => highlight(highlighted + 1),
+    Enter: () => tuneIn(channels[highlighted]),
+  };
+
+  // What `key` does now, if anything.
+  function actionFor(key: string): (() => void) | undefined {
+    const number = Number(key);
+    if (Number.isInteger(number) && number >= 1 && number <= 9) {
+      return () => {
+        if (number <= channels.length) tuneIn(channels[number - 1]);
+      };
+    }
+    if (key === "g" || key === "G") return () => setOpen(!isOpen);
+    return isOpen ? whileOpen[key] : undefined;
+  }
+
   window.addEventListener("keydown", (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    const number = Number(event.key);
-    if (Number.isInteger(number) && number >= 1 && number <= 9) {
-      if (number <= channels.length) tuneIn(channels[number - 1]);
-    } else if (event.key === "g" || event.key === "G") setOpen(!isOpen);
-    else if (isOpen && event.key === "Escape") setOpen(false);
-    else if (isOpen && event.key === "ArrowUp") highlight(highlighted - 1);
-    else if (isOpen && event.key === "ArrowDown") highlight(highlighted + 1);
-    else if (isOpen && event.key === "Enter") tuneIn(channels[highlighted]);
-    else return;
+    const action = actionFor(event.key);
+    if (!action) return;
     // Keep a focused button from also acting on the key, and arrows from
     // scrolling.
     event.preventDefault();
+    // Holding a key down repeats it: let the arrows step on, but don't keep
+    // toggling the Guide or re-Tuning in.
+    if (event.repeat && event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    action();
   });
 }
