@@ -1,10 +1,10 @@
-// `ingest <folder>` (ADR 0003): turns a folder of Originals into Library
-// Clips.
+// `ingest [folder]` (ADR 0003, ADR 0006): turns a folder of Originals under
+// the Library root into Library Clips.
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Clip } from "../../shared/index.ts";
 import type { Bucket, EncodeProgress, Encoder, Log } from "./adapters.ts";
 import { clipPath, loadManifest, publishManifest, relativePath } from "./published-manifest.ts";
@@ -16,6 +16,9 @@ export interface IngestOptions {
   encoder: Encoder;
   log: Log;
   encodeVersion: number;
+  // The folder to ingest: absolute, or relative to the Library root. Absent
+  // means the whole Library root.
+  path?: string;
 }
 
 export interface IngestResult {
@@ -28,8 +31,16 @@ export interface IngestResult {
   failed: string[];
 }
 
-export async function ingest(root: string, options: IngestOptions): Promise<IngestResult> {
+// `root` is the Library root (ADR 0006): every Clip's folder is recorded
+// relative to it, whichever folder under it is ingested. It comes from the
+// LIBRARY_ROOT setting, so it may be unset.
+export async function ingest(root: string | undefined, options: IngestOptions): Promise<IngestResult> {
   const { originals, web, encoder, log, encodeVersion } = options;
+  if (!root) throw new Error("LIBRARY_ROOT is not set: set it in .env to the folder holding the Library's Originals");
+  const start = folderUnderRoot(root, options.path);
+  if (!(await stat(join(root, start)).catch(() => null))?.isDirectory()) {
+    throw new Error(`not a folder: ${resolve(root, start)}`);
+  }
   const manifest = await loadManifest(web);
   // An older checkout of this CLI must not "re-encode" the Library back down.
   const newest = Math.max(0, ...manifest.clips.map((clip) => encodeVersionOf(clip.webEncodeKey)));
@@ -81,7 +92,7 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
       }
     }
 
-    const found = await findOriginals(root);
+    const found = await findOriginals(root, start);
     for (const [i, original] of found.entries()) {
       const originalPath = relativePath(original.folder, original.filename);
       const counter = `[${i + 1}/${found.length}]`;
@@ -152,13 +163,24 @@ function encodeVersionOf(webEncodeKey: string): number {
   return Number(match[1]);
 }
 
+// The folder `path` names, relative to the Library root with "/"
+// separators ("" for the root itself).
+// Refuses a path outside the root, where folders would be meaningless.
+function folderUnderRoot(root: string, path = ""): string {
+  const folder = relative(resolve(root), resolve(root, path));
+  if (folder === ".." || folder.startsWith(`..${sep}`) || isAbsolute(folder)) {
+    throw new Error(`${resolve(root, path)} is outside the Library root (LIBRARY_ROOT, ${resolve(root)})`);
+  }
+  return folder.split(sep).join("/");
+}
+
 interface FoundOriginal {
-  // Relative to the ingest root, with "/" separators ("" for the root).
+  // Relative to the Library root, with "/" separators ("" for the root).
   folder: string;
   filename: string;
 }
 
-// Every Original (.MPG file) under `root`, depth-first in name order, so
+// Every Original (.MPG file) under `folder` of `root`, depth-first in name order, so
 // which of two identical Originals counts as "first" is stable across runs.
 // Hidden entries (.DS_Store, macOS "._" resource forks) are skipped.
 async function findOriginals(root: string, folder = ""): Promise<FoundOriginal[]> {

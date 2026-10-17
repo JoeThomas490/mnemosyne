@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MANIFEST_KEY } from "../../shared/index.ts";
@@ -6,7 +7,9 @@ import {
   FakeEncoder,
   InMemoryBucket,
   RecordingLog,
+  clipIn,
   folderOf,
+  publishLibrary,
   originalRecordedAt,
   readManifest,
 } from "./test-support.ts";
@@ -411,6 +414,78 @@ describe("ingest: Recording time", () => {
     );
 
     expect(readManifest(web).clips[0]?.recordingTime).toBe("2028-02-29T23:59:58");
+  });
+});
+
+describe("ingest: the Library root", () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await folderOf({
+      "M2U00000.MPG": "b",
+      "Malta/M2U00001.MPG": "a",
+      "Malta/Day 2/M2U00002.MPG": "bb",
+    });
+  });
+
+  function runIn(root: string | undefined, path?: string) {
+    return ingest(root, { originals, web, encoder: new FakeEncoder(), log, encodeVersion: 1, path });
+  }
+  const folders = () => readManifest(web).clips.map((clip) => [clip.folder, clip.originalFilename]);
+
+  it("records folders relative to the Library root when ingesting a subfolder", async () => {
+    await runIn(root, join(root, "Malta"));
+
+    expect(folders()).toEqual([
+      ["Malta/Day 2", "M2U00002.MPG"],
+      ["Malta", "M2U00001.MPG"],
+    ]);
+  });
+
+  it("resolves a relative path against the Library root, not the current directory", async () => {
+    await runIn(root, "Malta/Day 2");
+
+    expect(folders()).toEqual([["Malta/Day 2", "M2U00002.MPG"]]);
+  });
+
+  it("ingests the whole Library root when given no path, with \"\" for the root itself", async () => {
+    await runIn(root);
+
+    expect(folders()).toEqual([
+      ["", "M2U00000.MPG"],
+      ["Malta/Day 2", "M2U00002.MPG"],
+      ["Malta", "M2U00001.MPG"],
+    ]);
+  });
+
+  it("refuses a path that isn't a folder, publishing nothing", async () => {
+    await expect(runIn(root, "Paris")).rejects.toThrow(/not a folder/);
+    await expect(runIn(root, "M2U00000.MPG")).rejects.toThrow(/not a folder/);
+
+    expect(web.writes).toBe(0);
+  });
+
+  it("refuses a missing Library root", async () => {
+    await expect(runIn(undefined)).rejects.toThrow(/LIBRARY_ROOT/);
+    await expect(runIn("")).rejects.toThrow(/LIBRARY_ROOT/);
+  });
+
+  it.each([
+    ["an absolute path elsewhere", async () => folderOf({ "M2U00001.MPG": "a" })],
+    ["a relative path climbing out", async () => ".."],
+    ["a sibling sharing the root's name as a prefix", async () => `${root}-copy`],
+  ])("refuses %s, archiving, encoding and publishing nothing", async (_, outside) => {
+    const encoder = new FakeEncoder();
+    await publishLibrary(web, [clipIn("", "M2U00009.MPG")], originals);
+    const before = web.text(MANIFEST_KEY);
+
+    await expect(
+      ingest(root, { originals, web, encoder, log, encodeVersion: 2, path: await outside() }),
+    ).rejects.toThrow(/outside/);
+
+    expect(encoder.encodes).toBe(0);
+    expect(originals.writes).toBe(0);
+    expect(web.writes).toBe(0);
+    expect(web.text(MANIFEST_KEY)).toBe(before);
   });
 });
 
