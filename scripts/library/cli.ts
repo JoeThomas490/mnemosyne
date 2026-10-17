@@ -3,6 +3,7 @@
 //   npm run ingest <folder>
 //   npm run library:list [filter]
 //   npm run library:remove -- <target> [--purge]
+//   npm run library:remove -- --all [--purge]
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -13,7 +14,7 @@ import { ingest } from "./ingest.ts";
 import { formatRecordingTime, list } from "./list.ts";
 import { clipPath } from "./published-manifest.ts";
 import { S3ApiBucket, r2ClientFromEnv } from "./r2-bucket.ts";
-import { remove } from "./remove.ts";
+import { remove, removeAll } from "./remove.ts";
 
 // Bucket names, as bound in wrangler.toml.
 const ORIGINALS_BUCKET = "mnemosyne-originals";
@@ -23,6 +24,7 @@ const USAGE = [
   "usage: npm run ingest <folder>",
   "       npm run library:list [filter]",
   "       npm run library:remove -- <target> [--purge]",
+  "       npm run library:remove -- --all [--purge]",
 ].join("\n");
 
 // Status lines are redrawn in place on a terminal and left out otherwise;
@@ -68,6 +70,7 @@ async function main([command, ...args]: string[]): Promise<number> {
     case "remove": {
       const purge = args.includes("--purge");
       const targets = args.filter((arg) => arg !== "--purge");
+      if (targets.length === 1 && targets[0] === "--all") return runRemoveAll(purge);
       if (targets.length === 1 && !targets[0]!.startsWith("-")) return runRemove(targets[0]!, purge);
       break;
     }
@@ -117,6 +120,12 @@ async function runList(filter?: string): Promise<number> {
 async function runRemove(target: string, purge: boolean): Promise<number> {
   const removed = await remove(target, { ...buckets(), log, purge, choose: askWhich });
   if (!removed) console.log("removed nothing");
+  return 0;
+}
+
+async function runRemoveAll(purge: boolean): Promise<number> {
+  const removed = await removeAll({ ...buckets(), log, purge });
+  if (removed.length === 0) console.log("removed nothing");
   return 0;
 }
 

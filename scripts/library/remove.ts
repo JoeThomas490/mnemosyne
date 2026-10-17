@@ -4,13 +4,16 @@ import type { Clip } from "../../shared/index.ts";
 import type { Bucket, Log } from "./adapters.ts";
 import { clipPath, loadManifest, publishManifest } from "./published-manifest.ts";
 
-export interface RemoveOptions {
+export interface RemoveAllOptions {
   originals: Bucket;
   web: Bucket;
   log: Log;
-  // Also delete the archived Original. Without it, re-ingesting the Original
-  // restores the Clip.
+  // Also delete the archived Originals. Without it, re-ingesting an Original
+  // restores its Clip.
   purge: boolean;
+}
+
+export interface RemoveOptions extends RemoveAllOptions {
   // Asks the owner which of several Clips sharing a bare Original filename
   // to remove; null removes none.
   choose(matches: Clip[]): Promise<Clip | null>;
@@ -23,7 +26,7 @@ export interface RemoveOptions {
 // subfolders rather than removed directly. Returns the removed Clip, or null
 // if the owner chose none.
 export async function remove(target: string, options: RemoveOptions): Promise<Clip | null> {
-  const { originals, web, log, purge } = options;
+  const { web, log, purge } = options;
   const manifest = await loadManifest(web);
   const matches = manifest.clips.filter((candidate) =>
     target.includes("/") ? clipPath(candidate) === target : candidate.originalFilename === target,
@@ -36,8 +39,30 @@ export async function remove(target: string, options: RemoveOptions): Promise<Cl
   // file.
   manifest.clips = manifest.clips.filter((candidate) => candidate !== clip);
   await publishManifest(web, manifest);
-  await web.delete(clip.webEncodeKey);
-  if (purge) await originals.delete(clip.id);
+  await deleteFiles(clip, options);
   log.info(`removed ${clipPath(clip)}${purge ? ", and purged its archived Original" : ""}`);
   return clip;
+}
+
+// Takes every Clip off air, returning them.
+export async function removeAll(options: RemoveAllOptions): Promise<Clip[]> {
+  const { web, log, purge } = options;
+  const manifest = await loadManifest(web);
+  const clips = manifest.clips;
+  if (clips.length === 0) return clips;
+
+  // As with one Clip: off air first, then delete.
+  manifest.clips = [];
+  await publishManifest(web, manifest);
+  for (const clip of clips) await deleteFiles(clip, options);
+  const count = `${clips.length} Clip${clips.length === 1 ? "" : "s"}`;
+  log.info(`removed ${count}${purge ? ", and purged their archived Originals" : ""}`);
+  return clips;
+}
+
+// Deletes an off-air Clip's web encode, and with `purge` its archived
+// Original.
+async function deleteFiles(clip: Clip, { originals, web, purge }: RemoveAllOptions): Promise<void> {
+  await web.delete(clip.webEncodeKey);
+  if (purge) await originals.delete(clip.id);
 }

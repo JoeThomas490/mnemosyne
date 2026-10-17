@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { MANIFEST_KEY, type Clip } from "../../shared/index.ts";
 import { ingest } from "./ingest.ts";
-import { remove } from "./remove.ts";
+import { remove, removeAll } from "./remove.ts";
 import {
   FakeEncoder,
   InMemoryBucket,
@@ -120,6 +120,44 @@ describe("remove: with --purge", () => {
     expect(web.objects.has(clip.webEncodeKey)).toBe(false);
     expect(originals.objects.has(clip.id)).toBe(false);
     expect(originals.objects.has(other.id)).toBe(true);
+  });
+});
+
+describe("removeAll", () => {
+  function runAll(purge = false) {
+    return removeAll({ originals, web, log: new RecordingLog(), purge });
+  }
+
+  it("takes every Clip off air, deleting their web encodes but keeping their archived Originals", async () => {
+    const clips = [clipIn("Malta", "M2U00001.MPG"), clipIn("Zoo", "M2U00001.MPG")];
+    await publishLibrary(web, clips, originals);
+
+    expect(await runAll()).toEqual(clips);
+
+    expect(readManifest(web).clips).toEqual([]);
+    for (const clip of clips) {
+      expect(web.objects.has(clip.webEncodeKey)).toBe(false);
+      expect(originals.objects.has(clip.id)).toBe(true);
+    }
+  });
+
+  it("with --purge, deletes their archived Originals too", async () => {
+    const clips = [clipIn("Malta", "M2U00001.MPG"), clipIn("Zoo", "M2U00001.MPG")];
+    await publishLibrary(web, clips, originals);
+
+    await runAll(true);
+
+    expect(readManifest(web).clips).toEqual([]);
+    for (const clip of clips) expect(originals.objects.has(clip.id)).toBe(false);
+  });
+
+  it("leaves an empty Library untouched", async () => {
+    await publishLibrary(web, []);
+    const writesBefore = web.writes;
+
+    expect(await runAll()).toEqual([]);
+
+    expect(web.writes).toBe(writesBefore);
   });
 });
 
