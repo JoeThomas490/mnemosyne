@@ -1,0 +1,36 @@
+# Builds, tests and deploys the site on every push to main (ADR 0005).
+# `npm run build` typechecks and runs the full test suite first, so a
+# failure there stops the workflow before anything is deployed.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# One deploy at a time; a newer push supersedes a queued one.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npx wrangler pages deploy --branch main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

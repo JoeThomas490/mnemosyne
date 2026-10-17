@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MANIFEST_KEY } from "../../shared/index.ts";
@@ -364,7 +363,7 @@ describe("ingest: an Original that fails to encode", () => {
 
 describe("ingest: Recording time", () => {
   it("decodes each sample Original's Recording time into the manifest", async () => {
-    await run(sampleOriginals());
+    await run(fixtureOriginals());
 
     const recordingTimes = Object.fromEntries(
       readManifest(web).clips.map((clip) => [clip.originalFilename, clip.recordingTime]),
@@ -415,20 +414,11 @@ describe("ingest: Recording time", () => {
   });
 });
 
-// The real camcorder Originals in assets/ (too large to commit, so they
-// must be copied in by hand before running the tests).
-const SAMPLE_ORIGINALS = ["M2U00027.MPG", "M2U00036.MPG", "M2U00265.MPG"];
-
-function sampleOriginals(): string {
-  const assets = fileURLToPath(new URL("../../assets/", import.meta.url));
-  const missing = SAMPLE_ORIGINALS.filter((name) => !existsSync(assets + name));
-  if (missing.length > 0) {
-    throw new Error(
-      `missing sample Originals in assets/: ${missing.join(", ")}. ` +
-        "They aren't committed; copy them in from the camcorder footage.",
-    );
-  }
-  return assets;
+// Byte-level slices of real camcorder Originals (the first 64 packs, which
+// hold the first ARI_DATA packet), committed so the tests run without the
+// full-size Originals in assets/ (ADR 0005).
+function fixtureOriginals(): string {
+  return fileURLToPath(new URL("./fixtures/", import.meta.url));
 }
 
 // Warnings about skipped duplicate content (the fake Originals also draw

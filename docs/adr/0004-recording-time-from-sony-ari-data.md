@@ -6,4 +6,4 @@ The Sony DCR-SX33E writes no `creation_time` metadata and no sidecar file, and f
 
 - The time is camera-local wall time with no timezone; it is displayed as-is. The 2 bytes before it (`10 3C`) may be a timezone offset but are unconfirmed.
 - A failed or implausible decode (year outside 2000–2100, or not a real date and time) means the Clip has no Recording time (and no Date stamp), never a guessed one; ingest warns and carries on.
-- The `assets/` Originals serve as test fixtures for the decoder.
+- Byte-level slices of those Originals, committed in `scripts/library/fixtures/`, serve as test fixtures for the decoder (ADR 0005).
