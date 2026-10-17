@@ -1,7 +1,9 @@
 // The Live Playback Controller: the player's decision core. Given the
-// manifest, the clock and what the player reports, it decides what the
-// player should do. It does no I/O and never reads the clock itself.
+// Channel, the manifest, the clock and what the player reports, it decides
+// what the player should do. It does no I/O and never reads the clock
+// itself.
 import { airingAt, type Airing, type Clip, type Manifest } from "../shared/index.ts";
+import { channelClips, type Channel } from "./channels.ts";
 
 export type PlayerEvent =
   | {
@@ -44,9 +46,12 @@ const MAX_DRIFT_SECONDS = 2;
 const RETRY_INTERVAL_MS = 30_000;
 
 export class LivePlaybackController {
+  // The Channel Tuned in to.
+  private channel: Channel | null = null;
   private manifest: Manifest | null = null;
   // The slot on air (whether its Clip is showing or it was skipped), or null
-  // while there's NO SIGNAL for want of a usable manifest.
+  // while there's NO SIGNAL for want of a usable manifest, or of Clips on
+  // the Channel.
   private airing: Airing | null = null;
   // The slot after `airing`, whose Clip the player was last asked to preload.
   private preloaded: Airing | null = null;
@@ -58,8 +63,9 @@ export class LivePlaybackController {
   // Local time at which to retry the manifest while off air.
   private retryAt = Infinity;
 
-  // Tunes in to the Channel: the first thing the player does.
-  tuneIn(): Command[] {
+  // Tunes in to `channel`: the first thing the player does.
+  tuneIn(channel: Channel): Command[] {
+    this.channel = channel;
     return this.fetchManifest();
   }
 
@@ -127,13 +133,13 @@ export class LivePlaybackController {
   // Airs whatever the Schedule says is on, with a freshly fetched manifest.
   private applyManifest(now: number): Command[] {
     const live = now + this.clockOffset;
-    const airing = airingAt(this.manifest!, live);
+    const airing = this.airingAt(live);
     if (!airing) return this.offAir(now);
     return this.airLive(live);
   }
 
   private airLive(live: number): Command[] {
-    const airing = airingAt(this.manifest!, live)!;
+    const airing = this.airingAt(live)!;
     this.airing = airing;
     for (const start of this.failedSlots) if (start < airing.start) this.failedSlots.delete(start);
 
@@ -162,8 +168,15 @@ export class LivePlaybackController {
     return [{ type: "fetchManifest" }];
   }
 
+  // The Airing on at `live` on the Channel's Schedule, from the current
+  // manifest.
+  private airingAt(live: number): Airing | null {
+    const manifest = this.manifest!;
+    return airingAt(channelClips(this.channel!, manifest.clips), Date.parse(manifest.scheduleEpoch), live);
+  }
+
   private nextAiring(airing: Airing): Airing {
-    return airingAt(this.manifest!, airing.end)!;
+    return this.airingAt(airing.end)!;
   }
 }
 

@@ -6,6 +6,7 @@
 import { MANIFEST_KEY, type Clip, type Manifest } from "../shared/index.ts";
 import { startCrt } from "./crt.ts";
 import { dateStampLines } from "./date-stamp.ts";
+import type { Channel } from "./channels.ts";
 import { LivePlaybackController, type Command, type PlayerEvent } from "./live-playback.ts";
 
 // How often the controller is ticked, in milliseconds.
@@ -26,7 +27,7 @@ export interface PlayerSound {
   onChange(listener: (muted: boolean) => void): void;
 }
 
-export function startPlayer(screen: HTMLElement): PlayerSound {
+export function startPlayer(screen: HTMLElement, channel: Channel): PlayerSound {
   const controller = new LivePlaybackController();
   const noSignal = document.createElement("div");
   noSignal.className = "no-signal";
@@ -156,7 +157,7 @@ export function startPlayer(screen: HTMLElement): PlayerSound {
     return video;
   }
 
-  run(controller.tuneIn());
+  run(controller.tuneIn(channel));
   setInterval(() => send({ type: "tick" }), TICK_INTERVAL_MS);
 
   return {

@@ -1,20 +1,28 @@
 import { describe, expect, it } from "vitest";
 import type { Clip, Manifest } from "../shared/index.ts";
+import { parseChannels, type Channel } from "./channels.ts";
 import { LivePlaybackController, type Command } from "./live-playback.ts";
 
 const EPOCH = Date.parse("2026-01-01T00:00:00Z");
 const SECOND = 1000;
 
-function clip(id: string, duration: number): Clip {
+function clip(id: string, duration: number, folder = ""): Clip {
   return {
     id,
     webEncodeKey: `v1/${id}.mp4`,
     duration,
     recordingTime: null,
-    folder: "",
+    folder,
     originalFilename: `${id}.MPG`,
   };
 }
+
+function channel(include?: string[]): Channel {
+  return parseChannels([{ id: "test", name: "Test", ...(include && { include }) }])[0];
+}
+
+// The whole Library, as the All Channel airs it.
+const ALL = channel();
 
 function manifestOf(...clips: Clip[]): Manifest {
   return { formatVersion: 1, scheduleEpoch: "2026-01-01T00:00:00Z", clips };
@@ -26,11 +34,11 @@ function fetched(controller: LivePlaybackController, manifest: Manifest, now: nu
   return controller.handle({ type: "manifestFetched", manifest, serverDate: now, requestedAt: now }, now);
 }
 
-// A viewer tuning in at `now`: returns what the controller asked the player
-// to do once the manifest arrived.
-function tuneIn(manifest: Manifest, now: number) {
+// A viewer tuning in to `onChannel` at `now`: returns what the controller
+// asked the player to do once the manifest arrived.
+function tuneIn(manifest: Manifest, now: number, onChannel = ALL) {
   const controller = new LivePlaybackController();
-  controller.tuneIn();
+  controller.tuneIn(onChannel);
   return { controller, commands: fetched(controller, manifest, now) };
 }
 
@@ -42,7 +50,7 @@ function aired(commands: Command[]) {
 describe("tuning in", () => {
   it("fetches the manifest first", () => {
     const controller = new LivePlaybackController();
-    expect(controller.tuneIn()).toEqual([{ type: "fetchManifest" }]);
+    expect(controller.tuneIn(ALL)).toEqual([{ type: "fetchManifest" }]);
   });
 
   it("airs the Clip currently on the Schedule, part-way through", () => {
@@ -58,7 +66,7 @@ describe("clock correction", () => {
     const serverNow = EPOCH + 25 * SECOND;
     const skewedNow = serverNow + 3 * 60 * 60 * SECOND + 2 * SECOND;
     const controller = new LivePlaybackController();
-    controller.tuneIn();
+    controller.tuneIn(ALL);
 
     const commands = controller.handle(
       { type: "manifestFetched", manifest, serverDate: serverNow, requestedAt: skewedNow },
@@ -71,7 +79,7 @@ describe("clock correction", () => {
   it("assumes the server answered halfway through the request", () => {
     const manifest = manifestOf(clip("a", 10));
     const controller = new LivePlaybackController();
-    controller.tuneIn();
+    controller.tuneIn(ALL);
 
     // Sent at local 0, answered at local 4s: the server's 25s mark was
     // local 2s, so local 4s is 27s into the Schedule.
@@ -199,6 +207,13 @@ describe("the Schedule", () => {
     for (const order of watchCycles(ragged, 300)) expect([...order].sort()).toEqual(["a", "b", "c", "d", "e"]);
   });
 
+  it("is exactly the Schedule that has always aired, on a Channel airing the whole Library", () => {
+    // Recorded before Channels existed: every viewer of the All Channel
+    // must keep seeing precisely this.
+    expect(watchCycles(library, 3).map((cycle) => cycle.join(""))).toEqual(["ehdfgbac", "bcghedaf", "eahdgbcf"]);
+    expect(aired(tuneIn(library, EPOCH + 987_654_321).commands)).toEqual({ clip: "c", offset: 24.071 });
+  });
+
   it("is the same for every viewer, however long they have been watching", () => {
     const now = EPOCH + 1234.5 * SECOND;
     const longWatcher = tuneIn(library, EPOCH).controller;
@@ -210,6 +225,56 @@ describe("the Schedule", () => {
     const justTunedIn = aired(tuneIn(library, now).commands)!;
 
     expect(aired(latest)?.clip).toBe(justTunedIn.clip);
+  });
+});
+
+describe("Channels", () => {
+  const library = manifestOf(
+    clip("root", 10),
+    clip("malta", 10, "Malta"),
+    clip("day2", 10, "Malta/Day 2"),
+    clip("maltese", 10, "Maltese"),
+    clip("paris", 10, "Paris"),
+  );
+
+  // Every Clip id one viewer of `onChannel` sees air through its first
+  // `slots` slots, tuning in at the epoch.
+  function watch(onChannel: Channel, slots: number): string[] {
+    let now = EPOCH;
+    let { controller, commands } = tuneIn(library, now, onChannel);
+    const seen: string[] = [];
+    while (seen.length < slots) {
+      seen.push(aired(commands)!.clip);
+      now += 10 * SECOND;
+      commands = controller.handle({ type: "clipEnded" }, now);
+    }
+    return seen;
+  }
+
+  it("air only the Clips in their included folders and the folders beneath them", () => {
+    expect(new Set(watch(channel(["Malta"]), 20))).toEqual(new Set(["malta", "day2"]));
+  });
+
+  it("air the whole Library when they include no folders", () => {
+    expect(new Set(watch(ALL, 20))).toEqual(new Set(["root", "malta", "day2", "maltese", "paris"]));
+  });
+
+  it("air their own Schedule, counting from the shared epoch", () => {
+    // Malta's Cycle is 20s long, so 25s in is 5s into its second Cycle.
+    const { commands } = tuneIn(library, EPOCH + 25 * SECOND, channel(["Malta"]));
+
+    expect(aired(commands)?.offset).toBe(5);
+  });
+
+  it("air the same thing for every viewer at the same moment", () => {
+    const now = EPOCH + 1234.5 * SECOND;
+    const travels = channel(["Malta", "Paris"]);
+
+    expect(aired(tuneIn(library, now, travels).commands)).toEqual(aired(tuneIn(library, now, travels).commands));
+  });
+
+  it("show NO SIGNAL when no Clips match their folders", () => {
+    expect(tuneIn(library, EPOCH, channel(["Tokyo"])).commands).toEqual([{ type: "noSignal" }]);
   });
 });
 
@@ -304,21 +369,21 @@ describe("NO SIGNAL", () => {
 
   it("shows when the manifest can't be fetched", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn();
+    controller.tuneIn(ALL);
 
     expect(controller.handle({ type: "manifestFailed" }, EPOCH)).toEqual([{ type: "noSignal" }]);
   });
 
   it("shows when the Library is empty", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn();
+    controller.tuneIn(ALL);
 
     expect(fetched(controller, manifestOf(), EPOCH)).toEqual([{ type: "noSignal" }]);
   });
 
   it("retries the manifest every 30s", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn();
+    controller.tuneIn(ALL);
     controller.handle({ type: "manifestFailed" }, EPOCH);
 
     expect(controller.handle({ type: "tick" }, EPOCH + 29 * SECOND)).toEqual([]);
@@ -331,7 +396,7 @@ describe("NO SIGNAL", () => {
 
   it("recovers on its own once the manifest is available", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn();
+    controller.tuneIn(ALL);
     controller.handle({ type: "manifestFailed" }, EPOCH);
     controller.handle({ type: "tick" }, EPOCH + 30 * SECOND);
 
