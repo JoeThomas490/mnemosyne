@@ -39,7 +39,7 @@ function fetched(controller: LivePlaybackController, manifest: Manifest, now: nu
 // asked the player to do once the manifest arrived.
 function tuneIn(manifest: Manifest, now: number, onChannel = ALL) {
   const controller = new LivePlaybackController();
-  controller.tuneIn(onChannel);
+  controller.tuneIn(onChannel, now);
   return { controller, commands: fetched(controller, manifest, now) };
 }
 
@@ -51,7 +51,7 @@ function aired(commands: Command[]) {
 describe("tuning in", () => {
   it("fetches the manifest first", () => {
     const controller = new LivePlaybackController();
-    expect(controller.tuneIn(ALL)).toEqual([{ type: "fetchManifest" }]);
+    expect(controller.tuneIn(ALL, EPOCH)).toEqual([{ type: "fetchManifest" }]);
   });
 
   it("airs the Clip currently on the Schedule, part-way through", () => {
@@ -67,7 +67,7 @@ describe("clock correction", () => {
     const serverNow = EPOCH + 25 * SECOND;
     const skewedNow = serverNow + 3 * 60 * 60 * SECOND + 2 * SECOND;
     const controller = new LivePlaybackController();
-    controller.tuneIn(ALL);
+    controller.tuneIn(ALL, EPOCH);
 
     const commands = controller.handle(
       { type: "manifestFetched", manifest, serverDate: serverNow, requestedAt: skewedNow },
@@ -80,7 +80,7 @@ describe("clock correction", () => {
   it("assumes the server answered halfway through the request", () => {
     const manifest = manifestOf(clip("a", 10));
     const controller = new LivePlaybackController();
-    controller.tuneIn(ALL);
+    controller.tuneIn(ALL, EPOCH);
 
     // Sent at local 0, answered at local 4s: the server's 25s mark was
     // local 2s, so local 4s is 27s into the Schedule.
@@ -279,6 +279,75 @@ describe("Channels", () => {
   });
 });
 
+describe("switching Channel", () => {
+  const library = manifestOf(
+    clip("root", 7),
+    clip("malta", 10, "Malta"),
+    clip("day2", 13, "Malta/Day 2"),
+    clip("paris", 11, "Paris"),
+  );
+  const malta = channel(["Malta"]);
+
+  it("airs the new Channel's live Airing, part-way through, without refetching the manifest", () => {
+    const { controller } = tuneIn(library, EPOCH + 2 * SECOND);
+    const now = EPOCH + 1234.5 * SECOND;
+
+    const commands = controller.tuneIn(malta, now);
+
+    expect(commands.some((command) => command.type === "fetchManifest")).toBe(false);
+    expect(commands).toEqual(tuneIn(library, now, malta).commands);
+  });
+
+  it("keeps the server's clock, not the viewer's skewed one", () => {
+    const controller = new LivePlaybackController();
+    controller.tuneIn(ALL, EPOCH);
+    const skew = 3 * 60 * 60 * SECOND;
+    controller.handle(
+      { type: "manifestFetched", manifest: library, serverDate: EPOCH, requestedAt: EPOCH + skew },
+      EPOCH + skew,
+    );
+
+    const commands = controller.tuneIn(malta, EPOCH + skew + 25 * SECOND);
+
+    expect(aired(commands)).toEqual({ clip: "malta", offset: 2 });
+  });
+
+  it("shows NO SIGNAL on a Channel with no Clips, and airs again on switching back", () => {
+    const { controller } = tuneIn(library, EPOCH + 2 * SECOND);
+
+    expect(controller.tuneIn(channel(["Tokyo"]), EPOCH + 5 * SECOND)).toEqual([{ type: "noSignal" }]);
+    expect(controller.tuneIn(malta, EPOCH + 25 * SECOND)).toEqual(tuneIn(library, EPOCH + 25 * SECOND, malta).commands);
+  });
+
+  it("airs the Clip boundaries of the new Channel's Schedule", () => {
+    const { controller } = tuneIn(library, EPOCH + 2 * SECOND);
+    controller.tuneIn(malta, EPOCH + 25 * SECOND);
+
+    expect(controller.handle({ type: "tick" }, EPOCH + 32 * SECOND)).toEqual([]);
+    expect(aired(controller.handle({ type: "tick" }, EPOCH + 33 * SECOND))).toEqual(
+      aired(tuneIn(library, EPOCH + 33 * SECOND, malta).commands),
+    );
+  });
+
+  it("airs the new Channel once the manifest arrives, when switched before it has", () => {
+    const controller = new LivePlaybackController();
+    controller.tuneIn(ALL, EPOCH);
+
+    expect(controller.tuneIn(malta, EPOCH)).toEqual([]);
+    expect(fetched(controller, library, EPOCH + 25 * SECOND)).toEqual(
+      tuneIn(library, EPOCH + 25 * SECOND, malta).commands,
+    );
+  });
+
+  it("forgets Clips that failed to load, so Tuning in again tries them afresh", () => {
+    const { controller } = tuneIn(library, EPOCH, malta);
+    controller.handle({ type: "clipFailed", clipId: "malta" }, EPOCH);
+    controller.handle({ type: "clipFailed", clipId: "day2" }, EPOCH);
+
+    expect(controller.tuneIn(malta, EPOCH + SECOND)).toEqual(tuneIn(library, EPOCH + SECOND, malta).commands);
+  });
+});
+
 describe("chronological Channels", () => {
   const CHRONOLOGICAL = channel(undefined, "chronological");
 
@@ -417,21 +486,21 @@ describe("NO SIGNAL", () => {
 
   it("shows when the manifest can't be fetched", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn(ALL);
+    controller.tuneIn(ALL, EPOCH);
 
     expect(controller.handle({ type: "manifestFailed" }, EPOCH)).toEqual([{ type: "noSignal" }]);
   });
 
   it("shows when the Library is empty", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn(ALL);
+    controller.tuneIn(ALL, EPOCH);
 
     expect(fetched(controller, manifestOf(), EPOCH)).toEqual([{ type: "noSignal" }]);
   });
 
   it("retries the manifest every 30s", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn(ALL);
+    controller.tuneIn(ALL, EPOCH);
     controller.handle({ type: "manifestFailed" }, EPOCH);
 
     expect(controller.handle({ type: "tick" }, EPOCH + 29 * SECOND)).toEqual([]);
@@ -444,7 +513,7 @@ describe("NO SIGNAL", () => {
 
   it("recovers on its own once the manifest is available", () => {
     const controller = new LivePlaybackController();
-    controller.tuneIn(ALL);
+    controller.tuneIn(ALL, EPOCH);
     controller.handle({ type: "manifestFailed" }, EPOCH);
     controller.handle({ type: "tick" }, EPOCH + 30 * SECOND);
 

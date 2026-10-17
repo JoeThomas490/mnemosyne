@@ -2,7 +2,7 @@
 // through the CRT, a NO SIGNAL screen, and the plumbing between them and
 // the Live Playback Controller. All scheduling decisions are the
 // controller's; this only reports what happens and does as it's told.
-// Sound is the viewer's to turn on, through the returned PlayerSound.
+// Sound is the viewer's to turn on, through the returned Player's sound.
 import { MANIFEST_KEY, type Clip, type Manifest } from "../shared/index.ts";
 import { startCrt } from "./crt.ts";
 import { dateStampLines } from "./date-stamp.ts";
@@ -27,7 +27,19 @@ export interface PlayerSound {
   onChange(listener: (muted: boolean) => void): void;
 }
 
-export function startPlayer(screen: HTMLElement, channel: Channel): PlayerSound {
+// A running player.
+export interface Player {
+  sound: PlayerSound;
+  // Switches to `channel`, live. Call from a user gesture, so the viewer's
+  // sound setting carries over.
+  tuneIn(channel: Channel): void;
+  // Hides and mutes the picture without stopping it, so the Channel keeps
+  // airing behind (say) the Channel Guide; unblanking restores the
+  // viewer's sound setting.
+  setBlanked(blanked: boolean): void;
+}
+
+export function startPlayer(screen: HTMLElement, channel: Channel): Player {
   const controller = new LivePlaybackController();
   const noSignal = document.createElement("div");
   noSignal.className = "no-signal";
@@ -51,6 +63,8 @@ export function startPlayer(screen: HTMLElement, channel: Channel): PlayerSound 
   });
   // Browsers only autoplay muted video, so the viewer starts muted.
   let muted = true;
+  // Hidden and muted, whatever the viewer's sound setting.
+  let blanked = false;
   const mutedListeners: ((muted: boolean) => void)[] = [];
   // Set when the airing Clip is loading or stalled; its next `playing`
   // reports where playback resumed.
@@ -105,17 +119,29 @@ export function startPlayer(screen: HTMLElement, channel: Channel): PlayerSound 
   function setMuted(next: boolean): void {
     if (next === muted) return;
     muted = next;
+    applySound();
+    for (const listener of mutedListeners) listener(muted);
+  }
+
+  function setBlanked(next: boolean): void {
+    if (next === blanked) return;
+    blanked = next;
+    screen.classList.toggle("blanked", blanked);
+    applySound();
+  }
+
+  function applySound(): void {
+    const silent = muted || blanked;
     for (const video of [active, standby]) {
-      video.muted = muted;
+      video.muted = silent;
       // Some browsers (iOS Safari) only let an element play unmuted once
       // it's been played from a gesture: unlock the standby element now,
       // as it'll next play from a tick.
-      if (!muted && video === standby) {
+      if (!silent && video === standby) {
         void video.play().catch(() => {});
         video.pause();
       }
     }
-    for (const listener of mutedListeners) listener(muted);
   }
 
   function load(video: HTMLVideoElement, clip: Clip, offset: number): void {
@@ -157,15 +183,19 @@ export function startPlayer(screen: HTMLElement, channel: Channel): PlayerSound 
     return video;
   }
 
-  run(controller.tuneIn(channel));
+  run(controller.tuneIn(channel, Date.now()));
   setInterval(() => send({ type: "tick" }), TICK_INTERVAL_MS);
 
   return {
-    get muted() {
-      return muted;
+    sound: {
+      get muted() {
+        return muted;
+      },
+      setMuted,
+      onChange: (listener) => mutedListeners.push(listener),
     },
-    setMuted,
-    onChange: (listener) => mutedListeners.push(listener),
+    tuneIn: (next) => run(controller.tuneIn(next, Date.now())),
+    setBlanked,
   };
 }
 

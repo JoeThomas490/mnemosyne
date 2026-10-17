@@ -1,12 +1,8 @@
-// The one control over the picture: a toggle to turn the sound on after
-// muted autoplay, and off again. It fades out when the viewer leaves the
-// mouse or screen alone, and comes back on any activity, so the picture is
-// left clear for leaning back.
+// A control over the picture: a toggle to turn the sound on after muted
+// autoplay, and off again. It fades out when the viewer leaves the mouse
+// or screen alone, and comes back on any activity (see idle-fade.ts).
+import { fadeWhenIdle } from "./idle-fade.ts";
 import type { PlayerSound } from "./player.ts";
-
-// How long without mouse, touch or keyboard activity before the toggle
-// fades out, in milliseconds.
-const HIDE_AFTER_MS = 3000;
 
 // A speaker, with sound waves when on or a cross when muted.
 const SPEAKER = '<path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>';
@@ -26,27 +22,10 @@ export function startSoundToggle(parent: HTMLElement, sound: PlayerSound): void 
     button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}${muted ? CROSS : WAVES}</svg>`;
   }
 
-  // A tap where the faded-out toggle sits only brings it back. It ignores
-  // the pointer while faded (see style.css), but iOS hit-tests the tap's
-  // click after the toggle has reappeared, so also drop the click of a
-  // press that woke it.
-  let pressWokeIt = false;
+  const pressWokeIt = fadeWhenIdle(button);
   button.addEventListener("click", () => {
-    if (!pressWokeIt) sound.setMuted(!sound.muted);
+    if (!pressWokeIt()) sound.setMuted(!sound.muted);
   });
   sound.onChange(render);
   render(sound.muted);
-
-  let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  function wake(event?: Event): void {
-    if (event?.type === "pointerdown") pressWokeIt = button.classList.contains("idle");
-    else if (event?.type === "keydown") pressWokeIt = false;
-    button.classList.remove("idle");
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => button.classList.add("idle"), HIDE_AFTER_MS);
-  }
-  for (const type of ["pointermove", "pointerdown", "keydown"]) {
-    window.addEventListener(type, wake, { passive: true });
-  }
-  wake();
 }

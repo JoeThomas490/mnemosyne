@@ -63,10 +63,16 @@ export class LivePlaybackController {
   // Local time at which to retry the manifest while off air.
   private retryAt = Infinity;
 
-  // Tunes in to `channel`: the first thing the player does.
-  tuneIn(channel: Channel): Command[] {
+  // Tunes in to `channel` at `now` (the local clock): the first thing the
+  // player does, and how it switches Channel. A switch airs the new
+  // Channel's live Airing straight away from the manifest and clock
+  // correction already in hand.
+  tuneIn(channel: Channel, now: number): Command[] {
     this.channel = channel;
-    return this.fetchManifest();
+    // Slots are the old Channel's; the new one's are tried afresh.
+    this.failedSlots.clear();
+    if (!this.manifest) return this.fetchManifest();
+    return this.applyManifest(now);
   }
 
   // `now` is the local clock, in milliseconds since the Unix epoch.
