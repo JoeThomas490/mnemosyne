@@ -32,8 +32,16 @@ _Avoid_: Playlist, category
 The deterministic, time-derived order in which a Channel's Clips air, identical for every viewer at any given moment.
 _Avoid_: Playlist, stream, queue
 
+**Channel order**:
+How a Channel arranges its Clips within each Cycle: _shuffled_ (a fresh shuffle every Cycle; the default) or _chronological_ (by Recording time, the same sequence every Cycle).
+_Avoid_: Sort, sequence
+
+**Channel Guide**:
+The list of Channels a viewer opens to pick one to Tune in to; the picture is hidden and muted while it's open.
+_Avoid_: Menu, channel list, EPG
+
 **Cycle**:
-One complete pass of a Schedule through every Clip in its Channel, each Clip airing exactly once, in shuffled order.
+One complete pass of a Schedule through every Clip in its Channel, each Clip airing exactly once, in the Channel's order.
 _Avoid_: Loop, round
 
 **Tune in**:
