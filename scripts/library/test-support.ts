@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { MANIFEST_KEY, type Clip, type Manifest } from "../../shared/index.ts";
-import type { Bucket, Encoder, Log } from "./adapters.ts";
+import type { Bucket, EncodeProgress, Encoder, Log } from "./adapters.ts";
 import { loadManifest, publishManifest } from "./published-manifest.ts";
 
 // An in-memory bucket that records every write.
@@ -51,14 +51,21 @@ export class InMemoryBucket implements Bucket {
 // default each encode lasts as many seconds as the Original has bytes.
 export class FakeEncoder implements Encoder {
   encodes = 0;
+  // Progress reported, in order, during every encode.
+  reports: EncodeProgress[] = [];
 
   constructor(
     private readonly label = "web",
     private readonly durationOf = (original: string) => original.length,
   ) {}
 
-  async encode(input: string, output: string): Promise<{ duration: number }> {
+  async encode(
+    input: string,
+    output: string,
+    onProgress?: (progress: EncodeProgress) => void,
+  ): Promise<{ duration: number }> {
     const original = await readFile(input, "utf8");
+    for (const progress of this.reports) onProgress?.(progress);
     await writeFile(output, `${this.label}:${original}`);
     this.encodes++;
     return { duration: this.durationOf(original) };
@@ -66,9 +73,17 @@ export class FakeEncoder implements Encoder {
 }
 
 export class RecordingLog implements Log {
+  readonly infos: string[] = [];
   readonly warnings: string[] = [];
+  readonly statuses: string[] = [];
 
-  info(): void {}
+  status(text: string): void {
+    this.statuses.push(text);
+  }
+
+  info(message: string): void {
+    this.infos.push(message);
+  }
 
   warn(message: string): void {
     this.warnings.push(message);

@@ -25,9 +25,28 @@ const USAGE = [
   "       npm run library:remove -- <target> [--purge]",
 ].join("\n");
 
+// Status lines are redrawn in place on a terminal and left out otherwise;
+// any other output clears the current one first.
+let statusShown = false;
+const clearStatus = () => {
+  if (statusShown) process.stdout.write("\r\x1b[K");
+  statusShown = false;
+};
 const log: Log = {
-  info: (message) => console.log(message),
-  warn: (message) => console.warn(`warning: ${message}`),
+  info: (message) => {
+    clearStatus();
+    console.log(message);
+  },
+  warn: (message) => {
+    clearStatus();
+    console.warn(`warning: ${message}`);
+  },
+  status: (text) => {
+    if (!process.stdout.isTTY) return;
+    // Truncated to the terminal's width, or "\r" can't redraw it.
+    process.stdout.write(`\r\x1b[K${text.slice(0, process.stdout.columns - 1)}`);
+    statusShown = true;
+  },
 };
 
 function buckets() {
@@ -64,6 +83,7 @@ async function runIngest(folder: string): Promise<number> {
     return 2;
   }
 
+  const started = Date.now();
   const result = await ingest(root, {
     ...buckets(),
     encoder: new FfmpegEncoder(),
@@ -71,8 +91,20 @@ async function runIngest(folder: string): Promise<number> {
     encodeVersion: ENCODE_VERSION,
   });
 
-  console.log(`added ${result.added}, re-encoded ${result.reencoded}, failed ${result.failed.length}`);
+  log.info(
+    `added ${result.added}, re-encoded ${result.reencoded}, skipped ${result.skipped}, ` +
+      `failed ${result.failed.length} in ${formatElapsed(Date.now() - started)}`,
+  );
   return result.failed.length > 0 ? 1 : 0;
+}
+
+// "12s", "41m 7s" or "2h 3m".
+function formatElapsed(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  const [h, m, s] = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60];
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 async function runList(filter?: string): Promise<number> {
@@ -109,6 +141,7 @@ async function askWhich(matches: Clip[]): Promise<Clip | null> {
 main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (error: unknown) => {
+    clearStatus();
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   },

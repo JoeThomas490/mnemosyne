@@ -254,6 +254,85 @@ describe("ingest: after the encode version is bumped", () => {
   });
 });
 
+describe("ingest: progress", () => {
+  it("numbers each Original out of every Original found, counting ones already in the Library", async () => {
+    await run(await folderOf({ "M2U00002.MPG": "b" }));
+    log = new RecordingLog();
+
+    await run(await folderOf({ "M2U00001.MPG": "a", "M2U00002.MPG": "b", "M2U00003.MPG": "bb" }));
+
+    expect(log.infos).toEqual(["[1/3] adding M2U00001.MPG", "[3/3] adding M2U00003.MPG"]);
+  });
+
+  it("counts Originals skipped because their content is already in the Library", async () => {
+    await run(await folderOf({ "M2U00002.MPG": "b" }));
+
+    const result = await run(
+      await folderOf({ "M2U00001.MPG": "a", "M2U00002.MPG": "b", "Copies/M2U00002.MPG": "b" }),
+    );
+
+    expect(result).toMatchObject({ added: 1, skipped: 2 });
+  });
+
+  it("numbers re-encodes separately", async () => {
+    await run(await folderOf({ "M2U00001.MPG": "a", "M2U00002.MPG": "bb" }));
+    log = new RecordingLog();
+
+    await run(await folderOf({ "M2U00003.MPG": "b" }), { encodeVersion: 2 });
+
+    expect(log.infos).toEqual([
+      "[re-encode 1/2] re-encoding M2U00001.MPG",
+      "[re-encode 2/2] re-encoding M2U00002.MPG",
+      "[1/1] adding M2U00003.MPG",
+    ]);
+  });
+});
+
+describe("ingest: encode progress", () => {
+  it("shows the encode's whole-number percentage, only when it changes", async () => {
+    const encoder = new FakeEncoder();
+    encoder.reports = [
+      { encoded: 0.5, total: 10 },
+      { encoded: 1, total: 10 },
+      { encoded: 1.04, total: 10 },
+      { encoded: 5, total: 10 },
+      { encoded: 10.3, total: 10 },
+    ];
+
+    await run(await folderOf({ "M2U00001.MPG": "a" }), { encoder });
+
+    expect(log.statuses).toEqual([
+      "[1/1] encoding M2U00001.MPG 5%",
+      "[1/1] encoding M2U00001.MPG 10%",
+      "[1/1] encoding M2U00001.MPG 50%",
+      "[1/1] encoding M2U00001.MPG 100%",
+    ]);
+  });
+
+  it("shows how much has been encoded, in whole seconds, when the Original's duration is unknown", async () => {
+    const encoder = new FakeEncoder();
+    encoder.reports = [
+      { encoded: 1.5, total: null },
+      { encoded: 1.9, total: null },
+      { encoded: 151, total: null },
+    ];
+
+    await run(await folderOf({ "M2U00001.MPG": "a" }), { encoder });
+
+    expect(log.statuses).toEqual(["[1/1] encoding M2U00001.MPG 00:01", "[1/1] encoding M2U00001.MPG 02:31"]);
+  });
+
+  it("shows re-encodes' progress under their own counter", async () => {
+    await run(await folderOf({ "M2U00001.MPG": "a" }));
+    const encoder = new FakeEncoder("v2");
+    encoder.reports = [{ encoded: 1, total: 4 }];
+
+    await run(await folderOf({}), { encoder, encodeVersion: 2 });
+
+    expect(log.statuses).toEqual(["[re-encode 1/1] encoding M2U00001.MPG 25%"]);
+  });
+});
+
 describe("ingest: an unrecognised manifest", () => {
   it("refuses to touch a manifest of another format version", async () => {
     const future = JSON.stringify({ formatVersion: 2, scheduleEpoch: "2026-01-01T00:00:00Z", clips: [] });

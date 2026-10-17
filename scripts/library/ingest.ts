@@ -6,7 +6,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Clip } from "../../shared/index.ts";
-import type { Bucket, Encoder, Log } from "./adapters.ts";
+import type { Bucket, EncodeProgress, Encoder, Log } from "./adapters.ts";
 import { clipPath, loadManifest, publishManifest, relativePath } from "./published-manifest.ts";
 import { readRecordingTime } from "./recording-time.ts";
 
@@ -21,6 +21,8 @@ export interface IngestOptions {
 export interface IngestResult {
   added: number;
   reencoded: number;
+  // Originals whose content is already in the Library.
+  skipped: number;
   // Relative paths of Originals (or Clips, when re-encoding) that couldn't be
   // processed. Everything else is still published.
   failed: string[];
@@ -37,14 +39,21 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
     );
   }
   const library = new Map(manifest.clips.map((clip) => [clip.id, clip]));
-  const result: IngestResult = { added: 0, reencoded: 0, failed: [] };
+  const result: IngestResult = { added: 0, reencoded: 0, skipped: 0, failed: [] };
 
   const scratch = await mkdtemp(join(tmpdir(), "mnemosyne-encode-"));
-  // Encodes the Original at `path` and uploads it under this encode version.
-  const encodeAndUpload = async (id: string, path: string) => {
+  // Encodes the Original at `path` and uploads it under this encode version,
+  // showing the encode's progress after `label`.
+  const encodeAndUpload = async (id: string, path: string, label: string) => {
     const webEncodeKey = webEncodeKeyFor(encodeVersion, id);
     const encoded = join(scratch, `${id}.mp4`);
-    const { duration } = await encoder.encode(path, encoded);
+    let shown = "";
+    const { duration } = await encoder.encode(path, encoded, (progress) => {
+      const text = `${label} ${formatProgress(progress)}`;
+      if (text === shown) return;
+      shown = text;
+      log.status(text);
+    });
     await web.upload(webEncodeKey, encoded, "video/mp4");
     await rm(encoded, { force: true });
     return { webEncodeKey, duration };
@@ -57,13 +66,14 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
   try {
     // Clips encoded under an older encode version are re-encoded from their
     // archived Originals, which needn't be available locally.
-    for (const clip of manifest.clips) {
-      if (clip.webEncodeKey === webEncodeKeyFor(encodeVersion, clip.id)) continue;
+    const stale = manifest.clips.filter((clip) => clip.webEncodeKey !== webEncodeKeyFor(encodeVersion, clip.id));
+    for (const [i, clip] of stale.entries()) {
+      const counter = `[re-encode ${i + 1}/${stale.length}]`;
       try {
-        log.info(`re-encoding ${clipPath(clip)}`);
+        log.info(`${counter} re-encoding ${clipPath(clip)}`);
         const archived = join(scratch, clip.id);
         await originals.download(clip.id, archived);
-        Object.assign(clip, await encodeAndUpload(clip.id, archived));
+        Object.assign(clip, await encodeAndUpload(clip.id, archived, `${counter} encoding ${clipPath(clip)}`));
         await rm(archived, { force: true });
         result.reencoded++;
       } catch (error) {
@@ -71,8 +81,10 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
       }
     }
 
-    for (const original of await findOriginals(root)) {
+    const found = await findOriginals(root);
+    for (const [i, original] of found.entries()) {
       const originalPath = relativePath(original.folder, original.filename);
+      const counter = `[${i + 1}/${found.length}]`;
       try {
         const file = join(root, originalPath);
         const id = await contentHash(file);
@@ -83,10 +95,11 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
               `skipping ${originalPath}: same content as ${clipPath(existing)}, which is already in the Library`,
             );
           }
+          result.skipped++;
           continue;
         }
 
-        log.info(`adding ${originalPath}`);
+        log.info(`${counter} adding ${originalPath}`);
         const recordingTimeResult = await readRecordingTime(file);
         if (recordingTimeResult.recordingTime === null) {
           log.warn(`no Recording time for ${originalPath}: ${recordingTimeResult.problem}`);
@@ -95,7 +108,7 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
         if (!(await originals.has(id))) await originals.upload(id, file, "video/mpeg");
         const clip: Clip = {
           id,
-          ...(await encodeAndUpload(id, file)),
+          ...(await encodeAndUpload(id, file, `${counter} encoding ${originalPath}`)),
           recordingTime: recordingTimeResult.recordingTime,
           folder: original.folder,
           originalFilename: original.filename,
@@ -115,6 +128,16 @@ export async function ingest(root: string, options: IngestOptions): Promise<Inge
     await publishManifest(web, manifest);
   }
   return result;
+}
+
+// An encode's progress as a whole-number percentage or, when the Original's
+// duration is unknown, as whole minutes and seconds encoded ("02:31"). The
+// Original's duration is an estimate, so encoding can overrun it.
+function formatProgress({ encoded, total }: EncodeProgress): string {
+  if (total !== null) return `${Math.min(100, Math.floor((encoded / total) * 100))}%`;
+  const seconds = Math.floor(encoded);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
 }
 
 // Where a Clip's web encode lives in the `mnemosyne-web` bucket (ADR 0003).

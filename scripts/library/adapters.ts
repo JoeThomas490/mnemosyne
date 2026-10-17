@@ -16,14 +16,27 @@ export interface Bucket {
   delete(key: string): Promise<void>;
 }
 
+// How far an encode has got: seconds of the Original encoded so far, out of
+// its total duration (null when that couldn't be read).
+export interface EncodeProgress {
+  encoded: number;
+  total: number | null;
+}
+
 // Produces a web encode of an Original.
 export interface Encoder {
   // Encodes the Original at `input` to `output`, returning the web encode's
-  // duration in seconds.
-  encode(input: string, output: string): Promise<{ duration: number }>;
+  // duration in seconds. Reports progress to `onProgress` as it goes.
+  encode(
+    input: string,
+    output: string,
+    onProgress?: (progress: EncodeProgress) => void,
+  ): Promise<{ duration: number }>;
 }
 
 export interface Log {
   info(message: string): void;
   warn(message: string): void;
+  // A transient line saying what's happening now, replaced by the next one.
+  status(text: string): void;
 }
