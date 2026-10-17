@@ -12,16 +12,21 @@ export interface Airing {
   end: number;
 }
 
+// How a Channel arranges its Clips within each Cycle: a fresh shuffle every
+// Cycle, or by Recording time, the same sequence every Cycle.
+export type ChannelOrder = "shuffled" | "chronological";
+
 // The Airing on at `now` on the Schedule of `clips` (a Channel's Clips, in
-// manifest order) counting from `epoch`, or null when nothing can air (no
-// Clips). Times are ms since the Unix epoch; `epoch` is the manifest's
-// `scheduleEpoch`, shared by every Channel.
-export function airingAt(clips: readonly Clip[], epoch: number, now: number): Airing | null {
+// manifest order) aired in `order`, counting from `epoch`, or null when
+// nothing can air (no Clips). Times are ms since the Unix epoch; `epoch` is
+// the manifest's `scheduleEpoch`, shared by every Channel.
+export function airingAt(clips: readonly Clip[], order: ChannelOrder, epoch: number, now: number): Airing | null {
   const cycleLength = clips.reduce((total, clip) => total + durationMs(clip), 0);
   if (cycleLength <= 0) return null;
   const cycle = Math.floor((now - epoch) / cycleLength);
   let start = epoch + cycle * cycleLength;
-  for (const clip of cycleOrder(clips, cycle)) {
+  const sequence = order === "chronological" ? chronological(clips) : cycleOrder(clips, cycle);
+  for (const clip of sequence) {
     const end = start + durationMs(clip);
     if (now < end) return { clip, start, end };
     start = end;
@@ -34,6 +39,25 @@ export function airingAt(clips: readonly Clip[], epoch: number, now: number): Ai
 // ends precisely where the next Cycle begins, whatever the durations.
 function durationMs(clip: Clip): number {
   return Math.round(clip.duration * 1000);
+}
+
+// The order every Cycle of a chronological Channel airs the Clips in: by
+// Recording time, then those with none, by folder then original filename.
+function chronological(clips: readonly Clip[]): Clip[] {
+  return [...clips].sort(
+    (a, b) =>
+      Number(a.recordingTime === null) - Number(b.recordingTime === null) ||
+      compare(a.recordingTime ?? "", b.recordingTime ?? "") ||
+      compare(a.folder, b.folder) ||
+      compare(a.originalFilename, b.originalFilename),
+  );
+}
+
+// Plain code-unit comparison: unlike localeCompare, the same in every
+// browser and locale. Recording times share one fixed-width format, so
+// this orders them by time.
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 // The order Cycle `cycle` airs the Clips in: a shuffle seeded by the Cycle

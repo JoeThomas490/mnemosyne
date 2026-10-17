@@ -2,10 +2,10 @@
 // repo root. This parses and validates that config, resolves the Channel a
 // viewer asked for, and picks a Channel's Clips from the Library. Pure: no
 // I/O.
-import type { Clip } from "../shared/index.ts";
+import type { ChannelOrder, Clip } from "../shared/index.ts";
 
-export type ChannelOrder = "shuffled";
-const CHANNEL_ORDERS: readonly ChannelOrder[] = ["shuffled"];
+export type { ChannelOrder };
+const CHANNEL_ORDERS: readonly ChannelOrder[] = ["shuffled", "chronological"];
 
 // One entry in `channels.json`, with defaults applied. The config's order
 // gives the Channel numbers and the first entry is the default Channel.

@@ -6,7 +6,7 @@ import { LivePlaybackController, type Command } from "./live-playback.ts";
 const EPOCH = Date.parse("2026-01-01T00:00:00Z");
 const SECOND = 1000;
 
-function clip(id: string, duration: number, folder = ""): Clip {
+function clip(id: string, duration: number, folder = "", details: Partial<Clip> = {}): Clip {
   return {
     id,
     webEncodeKey: `v1/${id}.mp4`,
@@ -14,11 +14,12 @@ function clip(id: string, duration: number, folder = ""): Clip {
     recordingTime: null,
     folder,
     originalFilename: `${id}.MPG`,
+    ...details,
   };
 }
 
-function channel(include?: string[]): Channel {
-  return parseChannels([{ id: "test", name: "Test", ...(include && { include }) }])[0];
+function channel(include?: string[], order?: string): Channel {
+  return parseChannels([{ id: "test", name: "Test", ...(include && { include }), ...(order && { order }) }])[0];
 }
 
 // The whole Library, as the All Channel airs it.
@@ -142,9 +143,9 @@ describe("Clip boundaries", () => {
 // The Clip ids one viewer sees air through the first `count` Cycles,
 // Cycle by Cycle, tuning in at the epoch and letting each Clip play to its
 // end.
-function watchCycles(manifest: Manifest, count: number): string[][] {
+function watchCycles(manifest: Manifest, count: number, onChannel = ALL): string[][] {
   let now = EPOCH;
-  let { controller, commands } = tuneIn(manifest, now);
+  let { controller, commands } = tuneIn(manifest, now, onChannel);
   const seen: string[] = [];
   while (seen.length < count * manifest.clips.length) {
     const air = aired(commands)!;
@@ -275,6 +276,53 @@ describe("Channels", () => {
 
   it("show NO SIGNAL when no Clips match their folders", () => {
     expect(tuneIn(library, EPOCH, channel(["Tokyo"])).commands).toEqual([{ type: "noSignal" }]);
+  });
+});
+
+describe("chronological Channels", () => {
+  const CHRONOLOGICAL = channel(undefined, "chronological");
+
+  function shotAt(id: string, duration: number, recordingTime: string): Clip {
+    return clip(id, duration, "", { recordingTime });
+  }
+
+  it("air their Clips in Recording-time order", () => {
+    // Library order isn't shooting order: camcorder filenames restart
+    // across tapes.
+    const library = manifestOf(
+      shotAt("evening", 10, "2004-08-02T19:30:00"),
+      shotAt("morning", 4.5, "2004-08-02T08:15:00"),
+      shotAt("next-day", 31, "2004-08-03T11:00:00"),
+      shotAt("arrival", 7.25, "2004-08-01T16:45:10"),
+    );
+
+    expect(watchCycles(library, 1, CHRONOLOGICAL)).toEqual([["arrival", "morning", "evening", "next-day"]]);
+  });
+
+  it("air the same sequence every Cycle, on Schedule, with fractional durations", () => {
+    const library = manifestOf(
+      shotAt("b", 4.533367, "2004-08-02T08:15:00"),
+      shotAt("a", 10.010011, "2004-08-01T16:45:10"),
+      shotAt("d", 7.296633, "2004-08-04T09:00:00"),
+      shotAt("c", 0.1, "2004-08-03T11:00:00"),
+    );
+
+    expect(watchCycles(library, 300, CHRONOLOGICAL)).toEqual(Array(300).fill(["a", "b", "c", "d"]));
+  });
+
+  it("air Clips with no Recording time last, by folder then original filename", () => {
+    const library = manifestOf(
+      clip("tape2-first", 10, "Malta/Day 2", { originalFilename: "M2U00001.MPG" }),
+      clip("root-late", 10, "", { originalFilename: "M2U00090.MPG" }),
+      shotAt("dated", 10, "2004-08-01T16:45:10"),
+      clip("tape1-second", 10, "Malta", { originalFilename: "M2U00027.MPG" }),
+      clip("tape1-first", 10, "Malta", { originalFilename: "M2U00003.MPG" }),
+      clip("root-early", 10, "", { originalFilename: "M2U00002.MPG" }),
+    );
+
+    expect(watchCycles(library, 2, CHRONOLOGICAL)).toEqual(
+      Array(2).fill(["dated", "root-early", "root-late", "tape1-first", "tape1-second", "tape2-first"]),
+    );
   });
 });
 
